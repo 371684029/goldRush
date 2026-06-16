@@ -1,0 +1,17 @@
+{
+  "plugin": ["oh-my-openagent@latest"],
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/glm-5.1",
+  "provider": {
+    "opencode": {
+      "options": {
+        "apiKey": "sk-R8uDZww9T8uZWB5bgCwCP1vmS2rXcDOZ4RKLmKuJJXM3NIMhXWEo8VnSGela05O5"
+      }
+    },
+    "opencode-go": {
+      "options": {
+        "apiKey": "sk-R8uDZww9T8uZWB5bgCwCP1vmS2rXcDOZ4RKLmKuJJXM3NIMhXWEo8VnSGela05O5"
+      }
+    }
+  }
+}

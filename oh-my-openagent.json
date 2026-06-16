@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json",
+  "agents": {
+    "oracle": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "prometheus": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "metis": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "momus": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "atlas": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "sisyphus-junior": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "explore": {
+      "model": "opencode-go/deepseek-v4-flash"
+    },
+    "librarian": {
+      "model": "opencode-go/deepseek-v4-flash"
+    },
+    "hephaestus": {
+      "model": "opencode-go/minimax-m2.7"
+    },
+    "multimodal-looker": {
+      "model": "opencode-go/minimax-m2.7"
+    }
+  },
+  "categories": {
+    "ultrabrain": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "deep": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "unspecified-high": {
+      "model": "opencode-go/glm-5.1"
+    },
+    "quick": {
+      "model": "opencode-go/minimax-m2.7"
+    },
+    "visual-engineering": {
+      "model": "opencode-go/minimax-m2.7"
+    },
+    "artistry": {
+      "model": "opencode-go/minimax-m2.7"
+    },
+    "unspecified-low": {
+      "model": "opencode-go/minimax-m2.7"
+    },
+    "writing": {
+      "model": "opencode-go/minimax-m2.7"
+    }
+  }
+}
