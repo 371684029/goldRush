@@ -202,6 +202,17 @@ node server.cjs
 # → http://localhost 或服务器 IP: http://106.14.92.235
 ```
 
+### 每日定时分析
+
+已在服务器设置每日 11:30 自动执行分析并生成 Markdown 报告（cron）：
+
+```bash
+crontab -l
+# 30 11 * * * /root/git/goldRush/scripts/daily-analysis.sh
+```
+
+日志文件在 `logs/daily-YYYY-MM-DD.log`，报告自动保存到 `docs/` 目录。
+
 ---
 
 ## 本地数据存储
@@ -279,6 +290,9 @@ goldRush/
 ├── data/
 │   └── goldrush.db           # SQLite (自动创建)
 ├── docs/                     # Markdown 分析报告 (analysis --md)
+├── scripts/
+│   └── daily-analysis.sh     # 每日定时分析脚本 (cron 11:30)
+├── logs/                     # 定时运行日志
 ├── package.json
 ├── tsconfig.json
 └── PLAN.md                   # 完整规划文档
