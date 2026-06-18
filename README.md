@@ -195,6 +195,13 @@ node dist/index.js analysis --md    # 生成 docs/goldrush-analysis-YYYY-MM-DD.m
 
 报告包含完整四维度分析、强制反驳、双轨策略和尾部风险，可直接用于发文章或归档查阅。每次分析也自动存入 SQLite（`analysis_reports` 表），可通过 `history --type reports` 查看。
 
+启动内置 HTTP 服务即可在浏览器查看所有报告：
+
+```bash
+node server.cjs
+# → http://localhost 或服务器 IP: http://106.14.92.235
+```
+
 ---
 
 ## 本地数据存储
@@ -290,6 +297,14 @@ goldRush/
 | 搜索(中文) | opencode websearch | 中文数据源覆盖好 |
 | 数据库 | SQLite (better-sqlite3) | 零配置、本地、够用 |
 | 终端输出 | chalk + cli-table3 | 表格+颜色 |
+| 报告展示 | 内置 HTTP 服务 (server.cjs) | 端口80 文件列表页 |
+
+### 启动报告展示页
+
+```bash
+node server.cjs
+# 访问 http://localhost 查看 docs/ 下所有报告
+```
 
 ---
 
