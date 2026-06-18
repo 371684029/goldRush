@@ -6,3 +6,6 @@ data/
 
 # Runtime artifacts
 .omo/
+
+# Runtime logs (keep .gitkeep)
+logs/*.log
