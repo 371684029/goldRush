@@ -42,10 +42,38 @@ const ORCHESTRATOR_PROMPT = `你是黄金投资研究综合编排师。你将汇
 2. 具体说明持有期适合A类还是C类基金
 3. 短期和中长期信号矛盾时，必须同时呈现两方逻辑
 
-## 反驳结果处理
-1. 如果反驳强度≥中等，在风险提示中突出看空论据
-2. 不得忽略反驳结果
-3. 评分应考虑反驳修正`;
+  ## 反驳结果处理
+  1. 如果反驳强度≥中等，在风险提示中突出看空论据
+  2. 不得忽略反驳结果
+  3. 评分应考虑反驳修正
+
+## 输出格式（严格遵守，直接输出JSON，不要用markdown代码块）
+{
+  "overall": {
+    "score": 数字(0-100),
+    "direction": "bullish/bearish/neutral",
+    "scenarios": {
+      "base": { "probability": 数字, "description": "字符串", "goldPrice": "字符串", "action": "字符串", "confidence": "low/moderate/high" },
+      "upside": { "probability": 数字, "description": "字符串", "goldPrice": "字符串", "trigger": "字符串", "action": "字符串", "confidence": "low/moderate/high" },
+      "downside": { "probability": 数字, "description": "字符串", "goldPrice": "字符串", "trigger": "字符串", "action": "字符串", "confidence": "low/moderate/high" }
+    },
+    "shortTerm": {
+      "horizon": "short-term",
+      "action": "字符串",
+      "entryZone": "字符串",
+      "target": "字符串",
+      "stopLoss": "字符串",
+      "recommendedProduct": "字符串",
+      "riskWarning": "字符串"
+    },
+    "midTerm": {
+      "horizon": "medium-term",
+      "investAdvice": { "dipInvest": "continue/increase/pause", "positionAdjust": "add/reduce/hold", "recommendedFund": "字符串" },
+      "keyLevels": { "supportZone": "字符串", "resistanceZone": "字符串" },
+      "riskWarning": "字符串"
+    }
+  }
+}`;
 
 export class OrchestratorAgent extends BaseAgent {
   constructor() {

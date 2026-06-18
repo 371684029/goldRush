@@ -111,29 +111,126 @@ export class BaseAgent {
 
     const text = await this.prompt(fullContent);
 
-    // 清理常见 LLM JSON 输出问题
-    const cleaned = text
-      .replace(/[\t\r\f\v]/g, ' ')        // 移除 tab 等控制字符
-      .replace(/\\\n/g, ' ')               // 移除转义换行
-      .replace(/\\t/g, ' ')                // 移除转义tab
-      .replace(/[\x00-\x1f]/g, (c) => {   // 移除其他控制字符（保留 \n）
-        return c === '\n' ? c : ' ';
-      });
-
-    try {
-      return JSON.parse(cleaned) as T;
-    } catch {
-      // 尝试从文本中提取 JSON
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0]) as T;
-        } catch {
-          throw new Error(`Agent ${this.name}: Failed to parse extracted JSON: ${jsonMatch[0].slice(0, 200)}`);
-        }
+    /** 尝试解析 JSON 字符串，含修复 */
+    function tryParse(raw: string): T | null {
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
       }
-      throw new Error(`Agent ${this.name}: Failed to parse structured output: ${text.slice(0, 200)}`);
     }
+
+    /** 深度清洁 JSON 文本 */
+    function deepClean(s: string): string {
+      let r = s
+        // 移除控制字符（包括换行符——JSON 字符串值中不允许实际换行）
+        .replace(/[\x00-\x1f]/g, ' ')
+        // 移除转义换行/tab
+        .replace(/\\\n/g, '')
+        .replace(/\\t/g, ' ')
+        // 中文引号 → 普通引号
+        .replace(/\u201c/g, '"')
+        .replace(/\u201d/g, '"')
+        .replace(/\u2018/g, "'")
+        .replace(/\u2019/g, "'")
+        // 全角逗号 → 半角
+        .replace(/，/g, ',')
+        // 移除尾随逗号
+        .replace(/,(\s*[}\]])/g, '$1')
+        // 合并多余空白
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+      // 修复 JSON 字符串值中的无效转义序列（如 \d, \s, \c 等）
+      // 只允许 JSON 合法的转义: \" \\ \/ \b \f \n \r \t \uXXXX
+      r = r.replace(/\\([^"\\\/bfnrtu])/g, (_, c) => c);
+
+      return r;
+    }
+
+    /** 获取 JSON.parse 失败的具体位置 */
+    function getParseErrorDetail(raw: string): string {
+      try {
+        JSON.parse(raw);
+        return '无错误';
+      } catch (e) {
+        const msg = String(e);
+        // 提取位置信息，如 "position 1234" 或 "at position 1234"
+        const posMatch = msg.match(/(?:position|at)\s*(\d+)/i);
+        if (posMatch) {
+          const pos = parseInt(posMatch[1], 10);
+          const start = Math.max(0, pos - 40);
+          const end = Math.min(raw.length, pos + 40);
+          return `位置 ${pos}: ...${JSON.stringify(raw.slice(start, end))}...`;
+        }
+        return msg.slice(0, 200);
+      }
+    }
+
+    // 1. 深度清洁后直接解析
+    let cleaned = deepClean(text);
+    let parsed = tryParse(cleaned);
+    if (parsed) return parsed;
+
+    // 2. 尝试从 markdown 代码块提取
+    const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      parsed = tryParse(deepClean(codeBlockMatch[1]));
+      if (parsed) return parsed;
+    }
+
+    // 3. 提取最外层 JSON 对象
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const jsonStr = jsonMatch[0];
+
+      // 3a. 直接解析
+      parsed = tryParse(jsonStr);
+      if (parsed) return parsed;
+
+      // 3b. 状态机修复：遍历字符，追踪字符串上下文，转义字符串值中未转义的双引号
+      let fixed = '';
+      let inString = false;
+      let escapeNext = false;
+      for (let i = 0; i < jsonStr.length; i++) {
+        const ch = jsonStr[i];
+        if (escapeNext) {
+          fixed += ch;
+          escapeNext = false;
+          continue;
+        }
+        if (ch === '\\') {
+          fixed += ch;
+          escapeNext = true;
+          continue;
+        }
+        if (ch === '"') {
+          if (inString) {
+            // 检查这个 " 是否真的是字符串结束
+            // 如果后面跟的是 JSON 结构字符 (,:; 空格 } ]) 则是结束，否则是字符串内容
+            const nextNonSpace = jsonStr.slice(i + 1).match(/\S/);
+            const nextCh = nextNonSpace ? nextNonSpace[0] : '';
+            if (nextCh === ',' || nextCh === '}' || nextCh === ']' || nextCh === ':' || nextCh === '') {
+              inString = false;
+              fixed += ch;
+            } else {
+              // 字符串内部的引号，转义
+              fixed += '\\"';
+            }
+          } else {
+            inString = true;
+            fixed += ch;
+          }
+          continue;
+        }
+        fixed += ch;
+      }
+      parsed = tryParse(fixed);
+      if (parsed) return parsed;
+    }
+
+    const diag = getParseErrorDetail(cleaned);
+    throw new Error(`Agent ${this.name}: Failed to parse structured output.\n  JSON解析错误: ${diag}\n  前300字符: ${text.slice(0, 300)}`);
   }
 
   /** 清理资源 (HTTP API 模式无需清理) */

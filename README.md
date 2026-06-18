@@ -56,6 +56,9 @@ node dist/index.js calibrate
 
 # 查看历史数据
 node dist/index.js history
+
+# 生成 Markdown 报告（保存到 docs/ 目录）
+node dist/index.js analysis --md
 ```
 
 建议设置 alias 方便使用：
@@ -77,7 +80,8 @@ goldrush analysis
 | `goldrush analysis -H short` | 仅短期视角（日线/入场止损） | P1 |
 | `goldrush analysis -H mid` | 仅中长期视角（周线/定投加减仓） | P1 |
 | `goldrush analysis --json` | JSON 格式输出 | P1 |
-| `goldrush analysis --save` | 保存报告到文件 | P1 |
+| `goldrush analysis --save` | 保存报告到文件 (JSON) | P1 |
+| `goldrush analysis --md` | 保存报告为 Markdown 到 docs/ 目录 | P1 |
 | `goldrush fund` | 黄金基金对比（费率/溢价/定投信号） | P1 |
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
@@ -181,6 +185,18 @@ Orchestrator (编排层)
 
 ---
 
+## 历史报告
+
+运行 `analysis --md` 会在 `docs/` 目录生成当日 Markdown 报告：
+
+```bash
+node dist/index.js analysis --md    # 生成 docs/goldrush-analysis-YYYY-MM-DD.md
+```
+
+报告包含完整四维度分析、强制反驳、双轨策略和尾部风险，可直接用于发文章或归档查阅。每次分析也自动存入 SQLite（`analysis_reports` 表），可通过 `history --type reports` 查看。
+
+---
+
 ## 本地数据存储
 
 SQLite 数据库自动创建在 `data/goldrush.db`：
@@ -255,6 +271,7 @@ goldRush/
 │   └── utils/                # 工具函数
 ├── data/
 │   └── goldrush.db           # SQLite (自动创建)
+├── docs/                     # Markdown 分析报告 (analysis --md)
 ├── package.json
 ├── tsconfig.json
 └── PLAN.md                   # 完整规划文档
