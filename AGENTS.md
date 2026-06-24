@@ -2,6 +2,16 @@
 
 ## Cursor Cloud specific instructions
 
+### 提交署名（用户要求，永久）
+本仓库 git 提交统一使用 **`wll <371684029@qq.com>`**。每个新会话开始时请先执行：
+
+```
+git config --local user.name "wll"
+git config --local user.email "371684029@qq.com"
+```
+
+不要使用 `Cursor Agent` 等默认署名，提交信息中也不要夹带 `Co-authored-by` / Cursor 等尾注。
+
 ### What this is
 GoldRush（黄金投资研究 Agent）是一个**纯本地 CLI 工具**（无 web server、无监听端口）。入口 `src/index.ts`（Commander.js），数据存于本地 SQLite（`better-sqlite3`，文件 `./data/goldrush.db`，首次运行自动创建，已被 `.gitignore` 忽略）。
 
