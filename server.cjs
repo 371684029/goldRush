@@ -480,7 +480,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(500);
         return res.end('Server error');
       }
-      const mdFiles = allFiles.filter(f => f.endsWith('.md')).sort();
+      const mdFiles = allFiles.filter(f => f.endsWith('.md')).sort().reverse();
       const html = renderIndex(mdFiles);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
