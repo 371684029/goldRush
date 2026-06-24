@@ -121,10 +121,10 @@ function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
   // 反驳摘要
   console.log(`\n  🔴 强制反驳摘要`);
   console.log(`  反驳强度: ${rebuttal.rebuttalStrength} | 看空力度: ${rebuttal.bearScore}/100`);
-  for (const point of rebuttal.bearPoints.slice(0, 3)) {
+  for (const point of (rebuttal.bearPoints ?? []).slice(0, 3)) {
     console.log(`  · ${point.point} (${point.probability}%概率)`);
   }
-  for (const vul of rebuttal.bullVulnerabilities.slice(0, 2)) {
+  for (const vul of (rebuttal.bullVulnerabilities ?? []).slice(0, 2)) {
     console.log(`  · 看多漏洞: ${vul.vulnerability}`);
   }
   if (rebuttal.adjustedScore) {
@@ -154,15 +154,16 @@ function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
   }
 
   // 尾部风险
-  if (tailRisks.length > 0) {
+  const tailRiskList = tailRisks ?? [];
+  if (tailRiskList.length > 0) {
     console.log(`\n  ⚠️ 尾部风险`);
-    for (const risk of tailRisks) {
+    for (const risk of tailRiskList) {
       console.log(`  ${risk.probability}% → ${risk.risk}: ${risk.impact} (触发: ${risk.trigger})`);
       console.log(`    对冲: ${risk.mitigation}`);
     }
 
     // 尾部风险指数
-    const noRisk = tailRisks.reduce((p, r) => p * (1 - r.probability / 100), 1);
+    const noRisk = tailRiskList.reduce((p, r) => p * (1 - r.probability / 100), 1);
     const index = (1 - noRisk) * 100;
     console.log(`  综合尾部风险指数: ${index.toFixed(1)}%`);
   }
