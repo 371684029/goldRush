@@ -1,0 +1,93 @@
+# GoldRush 改进存档
+
+> 本文档归纳一次代码体检后实施的改进。改进原则严格对齐项目立意（见 `CORRECTNESS-SPEC.md`）：
+> **「成本不是问题，正确率和风险暴露率才是关键。」** 因此本轮聚焦三类：
+> ① 修复影响「正确率」的算法/时区 bug；② 强化「严禁捏造数据」的反幻觉防线；
+> ③ 补齐健壮性与可测试性（项目此前零测试）。未改动整体架构，未引入新外部服务。
+
+---
+
+## 一、项目立意回顾（为何这样改）
+
+GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完成「采集 → 验证 → 四维度分析 → 强制反驳 → 情景 + 双轨策略」，并通过**回测校准闭环**让评分具备统计意义。文档反复强调的核心价值不是「说得像」，而是：
+
+- **数值本地计算、不交给 LLM**（防幻觉）——故技术指标/时区/百分位的算法必须正确；
+- **严禁捏造数据**、信息可靠性五道防线——故无数据来源时不应让 LLM 凭空"提取"；
+- **评分可回测**——故校准分桶必须覆盖全部评分（含满分）。
+
+本轮改进即针对上述原则中「实现与立意有偏差」之处。
+
+---
+
+## 二、改进清单
+
+### A. 正确性 / 算法 bug
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| A1 | `src/utils/time.ts` `todayDate()` | 手动 `+8h + getTimezoneOffset()` 再 `toISOString()`，在 **UTC+8 机器**上偏移被抵消，返回 UTC 日期而非上海日历日，导致「今日」判断与入库 key 错位 | 改用 `Intl.DateTimeFormat(timeZone:'Asia/Shanghai')` 取日历分量，**不受运行机器时区影响**；并支持注入 `now` 便于测试 |
+| A2 | `src/utils/time.ts` `getTradingTime()` | 夜盘注释为「20:00~次日02:30」，但条件 `hour < 2` 把 **02:00~02:30 误判为盘前** | 条件补齐为 `hour < 2 \|\| (hour === 2 && minute <= 30)`；同样改用上海时区分量 |
+| A3 | `src/indicators/percentile.ts` `rollingPercentile()` | 窗口 `slice(i-window+1, i)` **不含当前值**，百分位语义错误（相对"过去 window-1 点"而非标准"含当前的 window"） | 改为 `slice(i-window+1, i+1)` |
+| A4 | `src/db/calibration.ts` / `src/db/reports.ts` | 评分区间为左闭右开 `[min,max)`，**满分 100 落不进任何区间** → `getCalibrationContext(100)` 返回 `null`，满分报告无校准上下文、回测被丢弃 | 抽出纯函数 `src/utils/score-buckets.ts`（`scoreBucketRange`，最高区间右端取闭），`computeCalibration` 与 `getByScoreRange` 统一令 max=100 时取闭区间 |
+
+### B. 反幻觉 / 信息可靠性（对齐「严禁捏造数据」）
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| B1 | `src/agents/data-collector.ts` | 搜索结果全空（无 `TAVILY_API_KEY` 或搜索失败）时**仍调用 LLM 做"结构化提取"**，极易凭空捏造金价 | 采集前增加反捏造防线：若所有搜索结果为空则 **fail-fast** 抛出明确错误，绝不让 LLM 无据生成 |
+
+### C. 健壮性 / 空值防御（LLM 可能返回 null 字段）
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| C1 | `src/agents/rebuttal.ts` | 直接访问 `marketData.london.price.value` 等（采集 schema 允许 null）→ 运行期 `TypeError` 中断流水线；另有「厂市场数据」笔误 | 全部改为可选链 + `?? 'N/A'`，新增 `fmtPct` 统一格式化；修正笔误 |
+| C2 | `src/agents/orchestrator.ts` | 同上：prompt 与 `saveReport` 直接访问可空市场字段、`rebuttal.bearPoints.map` 等 | 可选链 + `?? 'N/A'` / `?? []` 防御 |
+| C3 | `src/commands/analysis.ts` `printReport()` | `rebuttal.bearPoints.slice` / `tailRisks.length` 在字段缺失时崩溃 | `(... ?? []).slice` / 先取 `tailRisks ?? []` |
+| C4 | `src/utils/source-rank.ts` `checkFreshness()` | 非法时间戳 → `NaN > threshold` 为 false → **误判为"新鲜"** | 增加 `Number.isNaN` 守卫，非法时间戳判为不新鲜并给出警告 |
+
+### D. CLI 一致性 / 功能补齐
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| D1 | `src/index.ts` | `history --type` 无白名单校验，非法值静默走错误分支 | 校验 `prices/reports`，非法值报错退出 |
+| D2 | `src/commands/calibrate.ts` | `--detail` 选项已注册但**完全未使用**（死选项） | 实现 `--detail`：按评分区间展开「预测方向 / 实际上涨数 / 校准误差 / 系统偏差」明细 |
+
+---
+
+## 三、测试（项目此前零测试）
+
+引入 **vitest**（`npm test` → `vitest run`），针对上述纯函数 bug 编写单元测试，共 **20 个用例全部通过**：
+
+| 测试文件 | 覆盖 |
+|----------|------|
+| `test/time.test.ts` | `todayDate` 上海时区跨日；`getTradingTime` 夜盘 02:00~02:30 边界、日盘、周末休市 |
+| `test/percentile.test.ts` | `rollingPercentile` 窗口含当前值；`percentile` 边界 |
+| `test/source-rank.test.ts` | `checkFreshness` 非法/空/新鲜/过期；`gradeSource` 分级 |
+| `test/score-buckets.test.ts` | `scoreBucketRange` 满分 100 归入 90-100、边界与越界 |
+
+> 说明：测试置于 `test/` 目录，不在 `tsconfig` 的 `include`（`src/**/*`）内，故不会被 `build`/`lint` 编译进 `dist`。
+
+---
+
+## 四、验证方式
+
+- `npm run lint`（`tsc --noEmit`）通过；
+- `npm run build`（`tsc`）通过；
+- `npm test`（vitest）20/20 通过；
+- 端到端：用应用自身仓储向本地 SQLite 注入 40 天金价 + 10 条报告（含满分 100），`node dist/index.js calibrate --days 90 --detail`：
+  - `90-100` 区间样本数为 **2**（含 92 与 100，证明满分不再被丢弃）；
+  - `--detail` 明细正常输出（证明死选项已生效）；
+- `node dist/index.js price`（无 `TAVILY_API_KEY`）现以**明确的反捏造提示**中止，而非含糊的 `fetch failed`。
+
+---
+
+## 五、未在本轮处理（建议后续）
+
+以下为体检中发现、但属于**架构级 / 需外部服务或更大改动**的差距，留作后续（与 `CORRECTNESS-SPEC.md` 路线图一致）：
+
+- **文档 vs 实现的搜索层**：文档为 Exa + opencode 双引擎，实现为 Tavily 单引擎（`exa-js` 依赖未使用）；
+- **Validator 未做多源交叉验证 / 未调用 LLM**（`VALIDATION_PROMPT` 闲置），与"3 源验证"承诺不符；
+- **`init-history` 名不副实**：仅采当日一条，未真正拉取 60 天历史；
+- **技术指标用日线 close 冒充周线**；`history.map(...).filter()` 压缩缺失日导致指标序列不等间隔（需 forward-fill / 交易日对齐）；
+- **历史模式匹配**（`scenario_features` + 余弦相似度）与 `search_cache`、`fund_nav` 写入、`database.path` 生效等均未落地；
+- **评分一致性**：编排 LLM 自出的 `overall.score` 未必等于反驳修正分 `adjustedScore`。
