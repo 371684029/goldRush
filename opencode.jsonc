@@ -1,7 +1,7 @@
 {
   "plugin": ["oh-my-openagent@latest"],
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode-go/glm-5.1",
+  "model": "opencode-go/deepseek-v4-pro",
   "provider": {
     "opencode": {
       "options": {
