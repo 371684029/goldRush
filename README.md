@@ -42,6 +42,9 @@ node dist/index.js price
 # 综合分析报告（默认双视角）
 node dist/index.js analysis
 
+# 导出 Markdown 投资日报（人类可读，便于存档/分享）
+node dist/index.js analysis --md
+
 # 只看短期视角
 node dist/index.js analysis -H short
 
@@ -77,7 +80,8 @@ goldrush analysis
 | `goldrush analysis -H short` | 仅短期视角（日线/入场止损） | P1 |
 | `goldrush analysis -H mid` | 仅中长期视角（周线/定投加减仓） | P1 |
 | `goldrush analysis --json` | JSON 格式输出 | P1 |
-| `goldrush analysis --save` | 保存报告到文件 | P1 |
+| `goldrush analysis --save` | 保存报告到文件（JSON） | P1 |
+| `goldrush analysis --md` | 导出 Markdown 投资日报（含综合研判/情景/四维度/反驳/双轨策略/尾部风险） | P1 |
 | `goldrush fund` | 黄金基金对比（费率/溢价/定投信号） | P1 |
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |

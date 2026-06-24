@@ -91,3 +91,26 @@ GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完
 - **技术指标用日线 close 冒充周线**；`history.map(...).filter()` 压缩缺失日导致指标序列不等间隔（需 forward-fill / 交易日对齐）；
 - **历史模式匹配**（`scenario_features` + 余弦相似度）与 `search_cache`、`fund_nav` 写入、`database.path` 生效等均未落地；
 - **评分一致性**：编排 LLM 自出的 `overall.score` 未必等于反驳修正分 `adjustedScore`。
+
+---
+
+## 六、第二轮（参考 sibling 项目 hongliRush）
+
+> `hongliRush`（同账号兄弟项目，定位"大A红利金融投资日报"）当前仅有占位 README，核心立意是**"投资日报 + 可读报告"**。据此为 GoldRush 优化「功能 + 样式」并补充文档。
+
+### 功能：Markdown 投资日报导出
+| 文件 | 说明 |
+|------|------|
+| `src/utils/report-md.ts`（新增） | 纯函数 `formatReportMarkdown(report, horizon)`：把完整分析报告渲染为人类可读的 Markdown 日报（综合研判 / 情景表 / 四维度表 / 强制反驳 / 双轨策略 / 尾部风险表 / 免责声明），对 LLM 缺失字段降级为 `N/A`，不抛错 |
+| `src/commands/analysis.ts`、`src/index.ts`、`src/types/config.ts` | 新增 `analysis --md`：将日报写入 `goldrush-日报-YYYY-MM-DD.md`（此前 `--save` 仅导出原始 JSON） |
+
+### 样式：表格化输出
+- `src/commands/history.ts`：`history`（prices/reports）改用项目已内置但此前未使用的 **`cli-table3`** 渲染，替代手写 `padStart`，对齐与 CJK 宽度更稳。
+
+### 测试
+- `test/report-md.test.ts`：用合成报告验证日报含全部小节、`horizon=short` 不输出中长期、字段缺失降级 `N/A`。总用例 **20 → 23**。
+
+### 文档
+- `README.md`：运行示例与命令表补充 `analysis --md`；`--save` 标注为 JSON。
+
+> 说明：`hongliRush` 仅占位，故按其"红利日报"立意做**通用且可本地验证**的增强；`analysis --md` 的活路径仍依赖外部 LLM，故以「单元测试 + 生产格式化器产出样例日报」验证，`history` 表格样式则用本地 SQLite 数据端到端验证。
