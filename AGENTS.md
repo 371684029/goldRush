@@ -9,7 +9,7 @@ GoldRush（黄金投资研究 Agent）是一个**纯本地 CLI 工具**（无 we
 - 开发模式（直接跑 TS，无需编译）：`npm run dev -- <command>`，例如 `npm run dev -- history`。
 - 编译后运行：`npm run build` 然后 `node dist/index.js <command>`。
 - Lint = 类型检查：`npm run lint`（即 `tsc --noEmit`）。
-- 仓库**没有自动化测试**（无 test 框架/脚本）；`lint` 是唯一的静态检查。
+- 单元测试：`npm test`（`vitest run`）。测试位于 `test/` 目录（不在 `tsconfig` 的 `include` 内，故不会被 `build`/`lint` 编译进 `dist`），主要覆盖纯函数（时区、百分位、时效性、校准分桶）。
 - 命令列表见 `README.md`（`price` / `analysis` / `fund` / `calibrate` / `snapshot` / `init-history` / `history`）。
 
 ### 非显而易见的运行前提（重要）
