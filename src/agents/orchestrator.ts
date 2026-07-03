@@ -151,12 +151,14 @@ export class OrchestratorAgent extends BaseAgent {
       required: ['overall'],
     };
 
+    const fmtPct = (v: number | null | undefined): string => (v == null ? 'N/A' : `${v > 0 ? '+' : ''}${v}%`);
+
     const prompt = `## 市场数据
-伦敦金: $${marketData.london.price.value} (${marketData.london.price.change > 0 ? '+' : ''}${marketData.london.price.change}%)
-上海金: ¥${marketData.shanghai.price?.value}/g
-ETF(518880): ${marketData.etf.nav.value}
-美元指数: ${marketData.dollarIndex.value.value}
-10Y美债: ${marketData.usTreasury.yield10y?.value ?? 'N/A'}%
+伦敦金: $${marketData.london?.price?.value ?? 'N/A'} (${fmtPct(marketData.london?.price?.change)})
+上海金: ¥${marketData.shanghai?.price?.value ?? 'N/A'}/g
+ETF(518880): ${marketData.etf?.nav?.value ?? 'N/A'}
+美元指数: ${marketData.dollarIndex?.value?.value ?? 'N/A'}
+10Y美债: ${marketData.usTreasury?.yield10y?.value ?? 'N/A'}%
 
 ## 技术面 (${technical.score}/100 ${technical.direction})
 短期: ${technical.shortTerm.trend}, ${technical.shortTerm.keySignal}
@@ -169,12 +171,12 @@ ${fundamental.keyPoints.join('; ')}
 ${sentiment.keyPoints.join('; ')}
 
 ## 基金面
-估值: ${fund.valuation.level}, 溢价折价: ${fund.premiumDiscount.current}%
+估值: ${fund.valuation?.level ?? 'N/A'}, 溢价折价: ${fund.premiumDiscount?.current ?? 'N/A'}%
 
 ## 反驳分析
 看空力度: ${rebuttal.bearScore}/100 (强度: ${rebuttal.rebuttalStrength})
-看空论据: ${rebuttal.bearPoints.map(p => p.point).join('; ')}
-看多漏洞: ${rebuttal.bullVulnerabilities.map(v => v.vulnerability).join('; ')}
+看空论据: ${(rebuttal.bearPoints ?? []).map(p => p.point).join('; ')}
+看多漏洞: ${(rebuttal.bullVulnerabilities ?? []).map(v => v.vulnerability).join('; ')}
 评分修正: ${rebuttal.adjustedScore ?? '未修正'} (${rebuttal.netEffect})
 
 ## 历史校准
@@ -241,7 +243,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
 
       // 存储市场特征向量
       const featuresRepo = new ScenarioFeaturesRepo(db);
-      const d = report.marketData.dollarIndex.value.change;
+      const d = report.marketData?.dollarIndex?.value?.change ?? 0;
       featuresRepo.insert({
         date: report.timestamp.slice(0, 10),
         reportId,

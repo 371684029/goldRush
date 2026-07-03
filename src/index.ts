@@ -47,7 +47,7 @@ program
   .option('-H, --horizon <type>', '输出视角: short/mid/all', 'all')
   .option('--json', '输出 JSON 格式')
   .option('--save', '保存报告到文件 (JSON)')
-  .option('--md', '保存报告为 Markdown 格式')
+  .option('--md', '保存报告为 Markdown 日报（docs/ 目录）')
   .action(async (opts) => {
     const horizon = opts.horizon as 'short' | 'mid' | 'all';
     if (!['short', 'mid', 'all'].includes(horizon)) {
@@ -124,8 +124,13 @@ program
   .option('--type <type>', '查看类型: prices/reports', 'prices')
   .option('--days <n>', '查看天数', '30')
   .action(async (opts) => {
+    const type = opts.type as string;
+    if (!['prices', 'reports'].includes(type)) {
+      console.error('❌ --type 必须是 prices 或 reports');
+      process.exit(1);
+    }
     try {
-      await historyCommand(opts.type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
+      await historyCommand(type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
     } finally {
       closeDb();
     }

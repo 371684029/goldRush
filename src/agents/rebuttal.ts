@@ -6,6 +6,11 @@ import type { RebuttalAnalysis, TechnicalAnalysis, FundamentalAnalysis, Sentimen
 import type { FundAnalysis } from '../types/fund.js';
 import type { MarketData } from '../types/market.js';
 
+/** 格式化涨跌幅，缺失值显示 N/A */
+function fmtPct(v: number | null | undefined): string {
+  return v == null ? 'N/A' : `${v > 0 ? '+' : ''}${v}%`;
+}
+
 const REBUTTAL_PROMPT = `你是黄金投资分析的独立反驳者。你的唯一任务是找出所有支持金价下跌或风险的证据。
 
 # 规则
@@ -79,14 +84,14 @@ export class RebuttalAgent extends BaseAgent {
 - 看多论据: ${sentiment.keyPoints.join('; ')}
 
 ## 基金面分析
-- 估值水位: ${fund.valuation.level}
-- 溢价折价: ${fund.premiumDiscount.current}%
+- 估值水位: ${fund.valuation?.level ?? 'N/A'}
+- 溢价折价: ${fund.premiumDiscount?.current ?? 'N/A'}%
 
-## 厂市场数据
-- 伦敦金: $${marketData.london.price?.value} (${marketData.london.price?.change > 0 ? '+' : ''}${marketData.london.price?.change}%)
-- 美元指数: ${marketData.dollarIndex.value?.value} (${marketData.dollarIndex.value?.change > 0 ? '+' : ''}${marketData.dollarIndex.value?.change}%)
-- 10Y美债: ${marketData.usTreasury.yield10y?.value}%
-- TIPS: ${marketData.usTreasury.tips?.value ?? 'N/A'}%
+## 市场数据
+- 伦敦金: $${marketData.london?.price?.value ?? 'N/A'} (${fmtPct(marketData.london?.price?.change)})
+- 美元指数: ${marketData.dollarIndex?.value?.value ?? 'N/A'} (${fmtPct(marketData.dollarIndex?.value?.change)})
+- 10Y美债: ${marketData.usTreasury?.yield10y?.value ?? 'N/A'}%
+- TIPS: ${marketData.usTreasury?.tips?.value ?? 'N/A'}%
 
 请系统性地反驳上述分析，找出所有被忽略的风险。`;
 
