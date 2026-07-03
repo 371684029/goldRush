@@ -27,6 +27,7 @@ GoldRush（黄金投资研究 Agent）是一个**纯本地 CLI 工具**（无 we
 - **`TAVILY_API_KEY`（可选）**：联网搜索用 Tavily（`@tavily/core`）。未配置时 `SearchRouter` 降级为空结果（不报错）。可写入 `.env`（见 `.env.example`）。
 - **纯本地命令（无需任何外部服务）**：`history`、`calibrate`、`diff`、`digest`、`notify --test`（未配置 webhook 时仅打印跳过）；`notify --daily` 需配置 `GOLDRUSH_WEBHOOK_URL` 或 `goldrush.config.json` 的 `alerts.webhookUrl` 才会实际发送。
 - **`init-history`**：需 `TAVILY_API_KEY`，会尝试回填过去 N 天缺失的 `london_close` 并采集当日；无法联网时请改用每日 `snapshot` 积累。
+- **Validator spot-check**：伦敦/上海仅单源时，Validator 会额外 Tavily 搜索并从 snippet 启发式抽价做多源交叉验证（无需额外 LLM）。
 - 技术指标（MA/RSI/MACD 等）需积累约 20 天快照后才生效。
 
 ### 注意

@@ -89,9 +89,16 @@ goldrush analysis
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
 | `goldrush snapshot` | 手动保存当日数据快照 | P1 |
-| `goldrush init-history` | 首次拉取历史数据 | P1 |
+| `goldrush init-history` | 回填缺失历史金价 + 采集当日（`--days 60`） | P1 |
 | `goldrush history` | 查看历史金价 | P1 |
 | `goldrush history --type reports` | 查看历史分析报告 | P1 |
+| `goldrush history --type funds` | 查看本地基金净值（fund_nav） | P1 |
+| `goldrush diff <dateA> <dateB>` | 对比两日报告变化 | P1 |
+| `goldrush digest --days 7` | 周期摘要（均分、跳变） | P1 |
+| `goldrush digest --md` | 周期摘要写入 docs/ | P1 |
+| `goldrush calibrate --tearsheet` | 区间收益分布 + 权益曲线 | P1 |
+| `goldrush notify --test` | Webhook 连通性测试 | P1 |
+| `goldrush notify --daily --exit 0` | 每日任务结束告警 | P1 |
 
 ---
 

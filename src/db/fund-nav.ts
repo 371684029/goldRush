@@ -26,6 +26,20 @@ export class FundNavRepo {
     tx(records);
   }
 
+  /** 获取各跟踪基金最近一条净值（date 降序） */
+  getLatestPerCode(days = 90): FundNavRecord[] {
+    const rows = this.db.prepare(`
+      SELECT f.* FROM fund_nav f
+      INNER JOIN (
+        SELECT code, MAX(date) AS max_date FROM fund_nav
+        WHERE date >= date('now', '-' || ? || ' days')
+        GROUP BY code
+      ) latest ON f.code = latest.code AND f.date = latest.max_date
+      ORDER BY f.code ASC
+    `).all(days) as Record<string, unknown>[];
+    return rows.map(mapRow);
+  }
+
   /** 获取指定基金最近 N 天净值 */
   getRecent(code: string, days: number): FundNavRecord[] {
     const rows = this.db.prepare(`

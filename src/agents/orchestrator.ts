@@ -7,6 +7,7 @@ import { CalibrationRepo } from '../db/calibration.js';
 import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
+import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, ShortTermStrategy, MidTermStrategy, Scenarios, RebuttalAnalysis, GoldAnalysisReport } from '../types/analysis.js';
 import type { MarketData } from '../types/market.js';
@@ -96,7 +97,11 @@ export class OrchestratorAgent extends BaseAgent {
     // 获取校准上下文
     const db = getDb();
     const calibrationRepo = new CalibrationRepo(db);
-    const initialScore = rebuttal.adjustedScore ?? Math.round((technical.score + fundamental.score + sentiment.score) / 3);
+    const initialScore = resolveOverallScore(rebuttal, {
+      technical: technical.score,
+      fundamental: fundamental.score,
+      sentiment: sentiment.score,
+    });
     const calibrationContext = calibrationRepo.getCalibrationContext(initialScore);
 
     // 自动回填
@@ -218,8 +223,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       tailRisks: rebuttal.tailRisks ?? [],
       overall: {
         ...result.overall,
-        // 强制评分一致性：最终评分必须等于反驳修正后的评分
-        score: initialScore,
+        score: enforceOverallScore(result.overall.score, initialScore),
         calibration: calibrationContext ?? {
           scoreRange: 'N/A',
           historicalAccuracy: null,

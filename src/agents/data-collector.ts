@@ -11,6 +11,7 @@ import { todayDate, formatNow } from '../utils/time.js';
 import { listMissingLondonDates, normalizeHistoryRows, type HistoryPriceRow } from '../utils/history-backfill.js';
 import { TRACKED_FUNDS } from '../types/fund.js';
 import type { MarketData, SearchResult } from '../types/market.js';
+import { parseMarketData } from '../schemas/market.js';
 
 const PRICE_COLLECT_PROMPT = `你是黄金市场数据采集专家。你的任务是从搜索结果中提取结构化的金价数据。
 
@@ -158,7 +159,6 @@ export class DataCollectorAgent extends BaseAgent {
       throw new Error('历史金价搜索无结果，无法回填。');
     }
 
-    const context = formatSearchContext(searchResults);
     const schema = {
       type: 'object',
       properties: {
@@ -178,32 +178,37 @@ export class DataCollectorAgent extends BaseAgent {
       required: ['rows'],
     };
 
-    const extracted = await this.structuredPrompt<{ rows: HistoryPriceRow[] }>(
-      `请从搜索结果中提取伦敦金（XAUUSD）每日收盘价。\n`
-      + `仅输出以下缺失日期（YYYY-MM-DD）中有据可查的行，严禁编造：\n${missing.join(', ')}\n\n`
-      + `${context}`,
-      schema,
-    );
-
     const allowed = new Set(missing);
-    const rows = normalizeHistoryRows(extracted.rows ?? [], allowed);
     let filled = 0;
-    for (const row of rows) {
-      repo.upsert({
-        date: row.date,
-        londonClose: row.londonClose,
-        londonHigh: null,
-        londonLow: null,
-        shanghaiClose: row.shanghaiClose ?? null,
-        shanghaiHigh: null,
-        shanghaiLow: null,
-        etfNav: null,
-        etfChange: null,
-        dollarIndex: null,
-        us10yYield: null,
-        tipsYield: null,
-      });
-      filled++;
+
+    const CHUNK = 20;
+    for (let i = 0; i < missing.length; i += CHUNK) {
+      const chunk = missing.slice(i, i + CHUNK);
+      const context = formatSearchContext(searchResults);
+      const extracted = await this.structuredPrompt<{ rows: HistoryPriceRow[] }>(
+        `请从搜索结果中提取伦敦金（XAUUSD）每日收盘价。\n`
+        + `仅输出以下缺失日期（YYYY-MM-DD）中有据可查的行，严禁编造：\n${chunk.join(', ')}\n\n`
+        + `${context}`,
+        schema,
+      );
+      const rows = normalizeHistoryRows(extracted.rows ?? [], allowed);
+      for (const row of rows) {
+        repo.upsert({
+          date: row.date,
+          londonClose: row.londonClose,
+          londonHigh: null,
+          londonLow: null,
+          shanghaiClose: row.shanghaiClose ?? null,
+          shanghaiHigh: null,
+          shanghaiLow: null,
+          etfNav: null,
+          etfChange: null,
+          dollarIndex: null,
+          us10yYield: null,
+          tipsYield: null,
+        });
+        filled++;
+      }
     }
 
     return { filled, attempted: missing.length };
@@ -276,11 +281,11 @@ export class DataCollectorAgent extends BaseAgent {
     }
 
     const searchContext = formatSearchContext(searchResults);
-    const data = await this.structuredPrompt<MarketData>(
+    const raw = await this.structuredPrompt<MarketData>(
       `当前时间: ${formatNow()}\n\n请从以下搜索结果中提取金价数据:\n\n${searchContext}`,
       MARKET_DATA_SCHEMA,
     );
-    return data;
+    return parseMarketData(raw);
   }
 
   /** 保存金价快照 + ETF 净值 */

@@ -150,3 +150,16 @@ GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完
 | 依赖清理 | 移除未使用的 `exa-js`；README/AGENTS 改为 Tavily 单引擎表述 |
 | 测试 | `history-backfill` / `weekly-series` / 多源验证；**61** 用例 |
 
+---
+
+## 九、第五轮（P1 续：Zod + Validator spot-check + history funds）
+
+| 项 | 落地 |
+|----|------|
+| Zod 校验 | `parseMarketData()` 规范化 LLM 输出，过滤无效 `altPrices` |
+| Validator spot-check | 单源时 Tavily 独立搜索 + snippet 启发式抽价，合并 `crossValidate` |
+| 评分一致性 | `resolveOverallScore` / `enforceOverallScore` 纯函数 + 单测 |
+| 历史回填分块 | `backfillHistory` 每 20 日一批 LLM 提取 |
+| `history --type funds` | 展示 `fund_nav` 最新净值与近 1 周/1 月涨跌 |
+| 测试 | market-schema / spot-verify / overall-score / search-cache；**69** 用例 |
+
