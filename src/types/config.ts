@@ -21,6 +21,15 @@ export interface AnalysisOptions {
 export interface CalibrateOptions {
   days: number;
   detail: boolean;
+  tearsheet: boolean;
+  md: boolean;
+}
+
+/** 周期摘要命令选项 */
+export interface DigestOptions {
+  days: number;
+  md: boolean;
+  json: boolean;
 }
 
 /** 全局配置 */

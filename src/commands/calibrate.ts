@@ -2,6 +2,13 @@
 
 import { getDb } from '../db/index.js';
 import { CalibrationRepo } from '../db/calibration.js';
+import { ReportsRepo } from '../db/reports.js';
+import { GoldPricesRepo } from '../db/gold-prices.js';
+import {
+  buildCalibrationTearsheet,
+  formatTearsheetConsole,
+  formatTearsheetMarkdown,
+} from '../utils/calibration-tearsheet.js';
 import { header, separator } from '../utils/format.js';
 import chalk from 'chalk';
 import type { CalibrateOptions } from '../types/config.js';
@@ -20,6 +27,12 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
 
   // 计算校准
   const report = repo.computeCalibration(options.days);
+
+  let tearsheet = null as ReturnType<typeof buildCalibrationTearsheet> | null;
+  if (options.tearsheet || options.md) {
+    const reports = new ReportsRepo(db).getRecent(options.days);
+    tearsheet = buildCalibrationTearsheet(reports, new GoldPricesRepo(db));
+  }
 
   // 输出
   console.log(header('📊 GoldRush 置信度校准报告', `过去${report.period.days}天 | ${report.period.from} ~ ${report.period.to}`));
@@ -74,6 +87,23 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
   console.log(`\n  💡 改进建议`);
   for (const rec of report.recommendations) {
     console.log(`  · ${rec}`);
+  }
+
+  if (tearsheet && options.tearsheet) {
+    console.log(formatTearsheetConsole(tearsheet));
+  }
+
+  if (tearsheet && options.md) {
+    const fs = await import('node:fs');
+    const docsDir = 'docs';
+    if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
+    const periodLabel = `过去${report.period.days}天 (${report.period.from} ~ ${report.period.to})`;
+    const content = formatTearsheetMarkdown(tearsheet, periodLabel);
+    const dated = `${docsDir}/goldrush-calibration-${new Date().toISOString().slice(0, 10)}.md`;
+    const latest = `${docsDir}/goldrush-calibration-latest.md`;
+    fs.writeFileSync(dated, content, 'utf-8');
+    fs.writeFileSync(latest, content, 'utf-8');
+    console.log(`\n  📝 Tearsheet 已写入 ${dated}`);
   }
 
   console.log(separator('═', 55));

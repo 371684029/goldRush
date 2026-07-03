@@ -9,6 +9,7 @@ import { calibrateCommand } from './commands/calibrate.js';
 import { snapshotCommand, initHistoryCommand } from './commands/snapshot.js';
 import { historyCommand } from './commands/history.js';
 import { diffCommand } from './commands/diff.js';
+import { digestCommand } from './commands/digest.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -88,11 +89,15 @@ program
   .description('回测校准（验证历史分析准确率）')
   .option('--days <n>', '回顾天数', '30')
   .option('--detail', '按评分区间细分校准')
+  .option('--tearsheet', '输出区间收益分布与模拟权益曲线')
+  .option('--md', '导出 Tearsheet 到 docs/')
   .action(async (opts) => {
     try {
       await calibrateCommand({
         days: parseInt(opts.days, 10) || 30,
         detail: opts.detail ?? false,
+        tearsheet: opts.tearsheet ?? false,
+        md: opts.md ?? false,
       });
     } finally {
       closeDb();
@@ -135,6 +140,20 @@ program
     }
     try {
       await historyCommand(type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('digest')
+  .description('周期摘要（均分、多空天数、最大跳变）')
+  .option('--days <n>', '回顾天数', '7')
+  .option('--md', '写入 docs/goldrush-digest-latest.md')
+  .option('--json', 'JSON 输出')
+  .action(async (opts) => {
+    try {
+      digestCommand(parseInt(opts.days, 10) || 7, opts.md ?? false, opts.json ?? false);
     } finally {
       closeDb();
     }

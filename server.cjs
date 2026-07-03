@@ -58,7 +58,9 @@ function extractScoreBreakdown(md) {
 
 /** 提取速览信息（基准情景 + 短期操作） */
 function extractQuickGlance(md) {
-  const glance = { baseAction: '', shortAction: '', baseProb: '' };
+  const glance = { baseAction: '', shortAction: '', baseProb: '', macroLabel: '' };
+  const macro = extractMacroRegime(md);
+  if (macro) glance.macroLabel = macro.label;
   const baseRow = md.match(/\| 基准 \| ([^|]+) \| ([^|]+) \| ([^|]+)/);
   if (baseRow) {
     glance.baseProb = baseRow[1].trim();
@@ -67,6 +69,43 @@ function extractQuickGlance(md) {
   const shortOp = md.match(/## ⏱️ 短期策略[\s\S]*?- 操作：([^\n]+)/);
   if (shortOp) glance.shortAction = shortOp[1].trim().slice(0, 60);
   return glance;
+}
+
+/** 提取宏观阶段 */
+function extractMacroRegime(md) {
+  const block = md.match(/## 🌐 宏观阶段[\s\S]*?(?=\n## |\n---|\Z)/);
+  if (!block) return null;
+  const label = block[0].match(/\*\*([^*]+)\*\*/);
+  const tag = block[0].match(/`([^`]+)`/);
+  const desc = block[0].match(/\n- ([^\n]+)\n- ([^\n]+)/);
+  return {
+    label: label ? label[1].trim() : '',
+    tag: tag ? tag[1].trim() : '',
+    description: desc ? desc[2].trim() : '',
+  };
+}
+
+/** 提取裁决摘要首行 */
+function extractJudgeVerdict(md) {
+  const block = md.match(/## ⚖️ 裁决摘要[\s\S]*?(?=\n## |\n---|\Z)/);
+  if (!block) return null;
+  const line = block[0].match(/^- (.+)$/m);
+  return line ? line[1].trim() : null;
+}
+
+/** 提取历史相似日（最多 3 条） */
+function extractSimilarDays(md) {
+  const idx = md.indexOf('## 📜 历史相似日');
+  if (idx < 0) return null;
+  const slice = md.slice(idx, idx + 1500);
+  const rows = [];
+  for (const line of slice.split('\n')) {
+    if (!line.startsWith('|') || line.includes('---') || line.includes('日期')) continue;
+    const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+    if (cells.length < 4) continue;
+    rows.push({ date: cells[0], similarity: cells[1], score: cells[2], ret: cells[3] });
+  }
+  return rows.length ? rows.slice(0, 3) : null;
 }
 
 /** 渲染评分构成瀑布（侧边栏） */
@@ -115,6 +154,9 @@ function getFileInfos(files) {
       mdLength: md.length,
       glance: extractQuickGlance(md),
       breakdown: extractScoreBreakdown(md),
+      macro: extractMacroRegime(md),
+      judge: extractJudgeVerdict(md),
+      similar: extractSimilarDays(md),
     };
   });
 }
@@ -142,6 +184,7 @@ function renderIndex(fileInfos) {
     <div class="hero-body">
       <div class="hero-date">${esc(latest.dateLabel)}</div>
       <div class="hero-title">黄金投资日报</div>
+      ${latest.glance?.macroLabel ? `<div class="hero-macro">🌐 ${esc(latest.glance.macroLabel)}</div>` : ''}
       ${latest.glance?.baseAction ? `<div class="hero-action">基准 ${esc(latest.glance.baseProb)} · ${esc(latest.glance.baseAction)}</div>` : ''}
       ${latest.glance?.shortAction ? `<div class="hero-short">短期：${esc(latest.glance.shortAction)}</div>` : ''}
       <div class="hero-dims">${latest.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 2)} ${d.score}</span>`).join('')}</div>
@@ -212,6 +255,7 @@ function renderIndex(fileInfos) {
     .hero-date { font-size: 0.78rem; color: #64748b; letter-spacing: 0.5px; }
     .hero-title { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin: 4px 0 8px; }
     .hero-action { font-size: 0.88rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 4px; }
+    .hero-macro { font-size: 0.82rem; color: #93c5fd; margin-bottom: 6px; font-weight: 500; }
     .hero-short { font-size: 0.82rem; color: #94a3b8; }
     .hero-dims { margin-top: 10px; }
     .hero-arrow { font-size: 1.4rem; color: #475569; flex-shrink: 0; }
@@ -436,6 +480,7 @@ function renderIndex(fileInfos) {
 
     <footer>
       <p>报告由 <a href="/">GoldRush</a> 自动生成 · 仅供研究参考，不构成投资建议</p>
+      <p style="margin-top:8px"><a href="/goldrush-digest-latest.md">📰 周期摘要</a> · <a href="/goldrush-calibration-latest.md">📊 校准 Tearsheet</a></p>
     </footer>
   </div>
 
@@ -485,6 +530,9 @@ function renderArticle(mdFilename, rawMarkdown) {
   const dims = extractDimensionScores(rawMarkdown);
   const breakdown = extractScoreBreakdown(rawMarkdown);
   const glance = extractQuickGlance(rawMarkdown);
+  const macro = extractMacroRegime(rawMarkdown);
+  const judge = extractJudgeVerdict(rawMarkdown);
+  const similar = extractSimilarDays(rawMarkdown);
 
   const scoreHtml = scoreInfo ? `<div class="score-gauge">
     <div class="sg-circle" style="background:conic-gradient(${scoreInfo.score >= 75 ? '#22c55e' : scoreInfo.score >= 55 ? '#f59e0b' : '#ef4444'} ${scoreInfo.score * 3.6}deg, #1e293b ${scoreInfo.score * 3.6}deg)">
@@ -509,11 +557,29 @@ function renderArticle(mdFilename, rawMarkdown) {
     <div class="waterfall">${renderScoreWaterfall(breakdown)}</div>
   </div>` : '';
 
-  const glanceHtml = (glance.baseAction || glance.shortAction) ? `<div class="glance-bar">
+  const macroHtml = macro ? `<div class="sidebar-block macro-chip">
+    <div class="sb-title">宏观阶段</div>
+    <div class="macro-label">${esc(macro.label)}</div>
+    <div class="macro-desc">${esc(macro.description)}</div>
+  </div>` : '';
+
+  const judgeHtml = judge ? `<div class="sidebar-block judge-box">
+    <div class="sb-title">裁决摘要</div>
+    <p class="judge-text">${esc(judge.slice(0, 200))}${judge.length > 200 ? '…' : ''}</p>
+  </div>` : '';
+
+  const similarHtml = similar && similar.length ? `<div class="sidebar-block">
+    <div class="sb-title">历史相似日</div>
+    ${similar.map(s => `<div class="sim-row"><span>${esc(s.date)}</span><span>${esc(s.similarity)}</span><span>${esc(s.ret)}</span></div>`).join('')}
+  </div>` : '';
+
+  const glanceHtml = (glance.baseAction || glance.shortAction || macro) ? `<div class="glance-bar">
     ${scoreInfo ? `<div class="gb-item gb-score">${scoreInfo.score}<span>/100</span></div>` : ''}
     ${scoreInfo ? `<div class="gb-item gb-dir">${scoreInfo.direction === 'bullish' ? '📈 偏多' : scoreInfo.direction === 'bearish' ? '📉 偏空' : '➡️ 中性'}</div>` : ''}
+    ${macro ? `<div class="gb-item"><span class="gb-label">宏观</span>${esc(macro.label)}</div>` : ''}
     ${glance.baseAction ? `<div class="gb-item"><span class="gb-label">基准 ${esc(glance.baseProb)}</span>${esc(glance.baseAction)}</div>` : ''}
     ${glance.shortAction ? `<div class="gb-item"><span class="gb-label">短期</span>${esc(glance.shortAction)}</div>` : ''}
+    ${judge ? `<div class="gb-item gb-judge"><span class="gb-label">裁决</span>${esc(judge.slice(0, 120))}${judge.length > 120 ? '…' : ''}</div>` : ''}
   </div>` : '';
 
   // 从 h2 提取目录
@@ -682,6 +748,14 @@ function renderArticle(mdFilename, rawMarkdown) {
     .gb-item.gb-score span { font-size: 0.9rem; color: #64748b; font-weight: 500; }
     .gb-item.gb-dir { flex: 0; min-width: auto; align-self: center; font-weight: 600; }
     .gb-label { display: block; font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+    .gb-judge { flex: 1 1 100%; font-size: 0.8rem; color: #94a3b8; }
+
+    /* Macro / judge sidebar */
+    .macro-label { font-weight: 700; color: #93c5fd; font-size: 0.88rem; }
+    .macro-desc { font-size: 0.72rem; color: #64748b; margin-top: 4px; line-height: 1.4; }
+    .judge-text { font-size: 0.72rem; color: #94a3b8; line-height: 1.45; }
+    .sim-row { display: flex; justify-content: space-between; font-size: 0.68rem; color: #94a3b8; padding: 4px 0; border-bottom: 1px solid #1e293b; }
+    .sim-row span:first-child { color: #e2e8f0; }
 
     /* Main content */
     .article-main {
@@ -773,8 +847,11 @@ function renderArticle(mdFilename, rawMarkdown) {
   <div class="article-layout">
     <aside class="sidebar">
       ${scoreHtml}
+      ${macroHtml}
       ${dims.length ? `<div class="sidebar-block"><div class="sb-title">四维度</div>${dimRows}</div>` : ''}
       ${waterfallHtml}
+      ${judgeHtml}
+      ${similarHtml}
       ${tocHtml}
     </aside>
     <div class="article-main">
