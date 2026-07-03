@@ -10,6 +10,19 @@ import type { MarketData, GoldPriceRecord } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
 
 /**
+ * 将日线收盘价序列 forward-fill，保持与 history 等长、等间隔（缺失日沿用上一有效收盘价）。
+ */
+function forwardFillCloses(records: GoldPriceRecord[]): number[] {
+  const closes: number[] = [];
+  let last: number | null = null;
+  for (const r of records) {
+    if (r.londonClose != null) last = r.londonClose;
+    if (last != null) closes.push(last);
+  }
+  return closes;
+}
+
+/**
  * 将日线数据聚合为周线 OHLC。
  * 周以 ISO 周一为界，返回每周的 [开盘, 最高, 最低, 收盘(周五)];
  * 只有 >= 3 天数据的周才计入，避免周末异常。
@@ -121,7 +134,7 @@ export class TechnicalAgent extends BaseAgent {
 
     let indicatorContext = '';
     if (history.length >= 20) {
-      const closes = history.map(h => h.londonClose).filter((v): v is number => v !== null);
+      const closes = forwardFillCloses(history);
 
       if (closes.length >= 20) {
         const ma5 = latestMA(closes, 5);

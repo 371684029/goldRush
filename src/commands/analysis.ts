@@ -7,11 +7,13 @@ import { RebuttalAgent } from '../agents/rebuttal.js';
 import { OrchestratorAgent } from '../agents/orchestrator.js';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
 import { formatReportMarkdown } from '../utils/report-md.js';
+import { computeTailRiskIndex } from '../utils/tail-risk.js';
+import { getConfig } from '../utils/config.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
 
-export async function analysisCommand(options: { horizon: Horizon; json: boolean; save: boolean; md: boolean }): Promise<void> {
+export async function analysisCommand(options: { horizon: Horizon; json: boolean; save: boolean; md: boolean }): Promise<number> {
   console.log('\n🔬 GoldRush 综合分析启动...\n');
 
   // Step 1: 数据采集 + 验证
@@ -23,7 +25,7 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   } catch (err) {
     console.error('数据采集失败:', err instanceof Error ? err.message : err);
     await collector.cleanup();
-    return;
+    return 1;
   }
 
   const validator = new ValidatorAgent();
@@ -58,6 +60,10 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   console.log('  🎯 Step 3: 综合编排...');
   const orchestrator = new OrchestratorAgent();
   const report = await orchestrator.orchestrate(marketData, technical, fundamental, sentiment, fund, rebuttal, options.horizon);
+  report.dataQuality = {
+    overallConfidence: validation.overallConfidence,
+    warnings: validation.warnings,
+  };
   console.log('  ✅ 编排完成');
 
   // 输出报告
@@ -91,6 +97,7 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   await validator.cleanup();
   await rebuttalAgent.cleanup();
   await orchestrator.cleanup();
+  return 0;
 }
 
 function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
@@ -174,10 +181,13 @@ function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
       console.log(`    对冲: ${risk.mitigation}`);
     }
 
-    // 尾部风险指数
-    const noRisk = tailRiskList.reduce((p, r) => p * (1 - r.probability / 100), 1);
-    const index = (1 - noRisk) * 100;
+    // 尾部风险指数（互斥修正，避免虚高）
+    const maxCap = getConfig().investment.maxTailRiskIndex * 2.5;
+    const { index, rawUnion } = computeTailRiskIndex(tailRiskList, maxCap);
     console.log(`  综合尾部风险指数: ${index.toFixed(1)}%`);
+    if (rawUnion - index > 5) {
+      console.log(`  （朴素并概率 ${rawUnion.toFixed(1)}%，已做互斥修正）`);
+    }
   }
 
   console.log(separator('═', 55));

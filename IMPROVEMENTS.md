@@ -113,4 +113,26 @@ GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完
 ### 文档
 - `README.md`：运行示例与命令表补充 `analysis --md`；`--save` 标注为 JSON。
 
-> 说明：`hongliRush` 仅占位，故按其"红利日报"立意做**通用且可本地验证**的增强；`analysis --md` 的活路径仍依赖外部 LLM，故以「单元测试 + 生产格式化器产出样例日报」验证，`history` 表格样式则用本地 SQLite 数据端到端验证。
+---
+
+## 七、第三轮（优化项落地）
+
+针对体检清单中的 P0/P1 项，在 `main` 分支直接修复：
+
+| 优先级 | 项 | 修复 |
+|--------|-----|------|
+| P0 | 反驳评分方向错误（强看空反驳反而抬高偏多分） | 新增 `src/utils/rebuttal-score.ts`：向 `(100 - bearScore)` 靠拢，替代 `(bearScore - originalScore)` |
+| P0 | `goldrush.config.json` 与代码结构不匹配 | `loadConfig` 深合并 + 识别 `llm.models` 别名；`goldrush.config.json` 改为扁平结构 |
+| P0 | 尾部风险指数虚高（98%+） | 新增 `src/utils/tail-risk.ts`：互斥修正 + `maxTailRiskIndex` 上限 |
+| P1 | 单源仍标 `verified` | `crossValidate` 单源改为 `single_source`，置信度 35–55 |
+| P1 | 技术指标 `filter` 压缩缺失日 | `forwardFillCloses` 前向填充收盘价 |
+| P1 | `analysis` 失败 exit 0 | 采集失败返回 1，`index.ts` 非零退出 |
+| P1 | `database.path` 未生效 | `getDb()` 读取 `getConfig().database.path` |
+| P1 | `server.cjs` 安全 | 默认 `127.0.0.1:3000`、规范化路径防穿越、DOMPurify 净化 Markdown |
+
+### 测试
+- `test/rebuttal-score.test.ts`、`test/tail-risk.test.ts`、`test/config.test.ts`；`source-rank` 补单源用例。总用例 **23 → 35**。
+
+### 仍未处理（P2 / 架构级）
+- Zod 校验替代手写 JSON 修复；Exa 双引擎；`init-history` 真正回填 60 天；`search_cache` / `fund_nav` 写入；评分乘数在线校准等（见第五节）。
+

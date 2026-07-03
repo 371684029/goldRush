@@ -55,12 +55,13 @@ program
       process.exit(1);
     }
     try {
-      await analysisCommand({
+      const exitCode = await analysisCommand({
         horizon,
         json: opts.json ?? false,
         save: opts.save ?? false,
         md: opts.md ?? false,
       });
+      if (exitCode !== 0) process.exit(exitCode);
     } finally {
       closeDb();
     }

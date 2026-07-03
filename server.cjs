@@ -5,8 +5,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const PORT = 80;
-const DOCS_DIR = path.join(__dirname, 'docs');
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.HOST || '127.0.0.1';
+const DOCS_DIR = path.resolve(__dirname, 'docs');
+const DOCS_ROOT = DOCS_DIR + path.sep;
 
 // ===== 评分提取 =====
 
@@ -427,6 +429,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${esc(dateLabel)} — GoldRush 分析报告</title>
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -632,7 +635,7 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   <script>
     const md = \`${esc(mdContent(rawMarkdown))}\`;
-    document.getElementById('content').innerHTML = marked.parse(md);
+    document.getElementById('content').innerHTML = DOMPurify.sanitize(marked.parse(md));
   </script>
 </body>
 </html>`;
@@ -650,10 +653,11 @@ function mdContent(raw) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost`);
-  let filePath = path.join(DOCS_DIR, url.pathname === '/' ? '' : url.pathname);
+  const relPath = url.pathname === '/' ? '' : decodeURIComponent(url.pathname);
+  const filePath = path.resolve(DOCS_DIR, relPath.replace(/^\//, ''));
 
-  // 安全校验
-  if (!filePath.startsWith(DOCS_DIR)) {
+  // 安全校验：禁止路径穿越
+  if (filePath !== DOCS_DIR && !filePath.startsWith(DOCS_ROOT)) {
     res.writeHead(403);
     return res.end('Forbidden');
   }
@@ -709,6 +713,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🥇 GoldRush Docs Server running on http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`🥇 GoldRush Docs Server running on http://${HOST}:${PORT}`);
 });

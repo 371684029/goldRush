@@ -2,6 +2,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
+import { getConfig } from '../utils/config.js';
 
 let db: Database.Database | null = null;
 
@@ -9,7 +10,7 @@ let db: Database.Database | null = null;
 export function getDb(dbPath?: string): Database.Database {
   if (db) return db;
 
-  const resolvedPath = dbPath ?? path.resolve(process.cwd(), 'data', 'goldrush.db');
+  const resolvedPath = dbPath ?? path.resolve(process.cwd(), getConfig().database.path);
 
   // 确保数据目录存在
   const dir = path.dirname(resolvedPath);

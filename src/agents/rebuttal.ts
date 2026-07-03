@@ -2,6 +2,7 @@
 
 import { BaseAgent } from './base.js';
 import { getConfig } from '../utils/config.js';
+import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
 import type { RebuttalAnalysis, TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, RebuttalStrength, BearPoint, BullVulnerability } from '../types/analysis.js';
 import type { FundAnalysis } from '../types/fund.js';
 import type { MarketData } from '../types/market.js';
@@ -145,23 +146,3 @@ function determineRebuttalStrength(rebuttal: { bearScore: number; bearPoints: Be
   return 'weak';
 }
 
-/** 评分修正逻辑 */
-function adjustScoreWithRebuttal(
-  originalScore: number,
-  bearScore: number,
-  rebuttalStrength: RebuttalStrength,
-): { adjustedScore: number; netEffect: RebuttalAnalysis['netEffect'] } {
-  const strengthMultiplier: Record<RebuttalStrength, number> = {
-    weak: 0.10,
-    moderate: 0.20,
-    strong: 0.35,
-  };
-
-  const adjustment = (bearScore - originalScore) * strengthMultiplier[rebuttalStrength];
-  const adjustedScore = Math.max(0, Math.min(100, Math.round(originalScore + adjustment)));
-
-  const absAdjust = Math.abs(adjustment);
-  const netEffect = absAdjust < 1 ? 'unchanged' : absAdjust < 5 ? 'downgraded' : 'significant_downgrade';
-
-  return { adjustedScore, netEffect };
-}

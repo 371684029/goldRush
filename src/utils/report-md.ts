@@ -6,6 +6,8 @@
 
 import type { GoldAnalysisReport } from '../types/analysis.js';
 import type { Horizon } from '../types/config.js';
+import { computeTailRiskIndex } from '../utils/tail-risk.js';
+import { getConfig } from '../utils/config.js';
 
 function dirText(d: string | undefined): string {
   switch (d) {
@@ -124,9 +126,13 @@ export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizo
     for (const r of tailRisks) {
       lines.push(`| ${pct(r.probability)} | ${na(r.risk)} | ${na(r.impact)} | ${na(r.trigger)} | ${na(r.mitigation)} |`);
     }
-    const noRisk = tailRisks.reduce((p, r) => p * (1 - (r.probability ?? 0) / 100), 1);
+    const maxCap = getConfig().investment.maxTailRiskIndex * 2.5;
+    const { index, rawUnion } = computeTailRiskIndex(tailRisks, maxCap);
     lines.push('');
-    lines.push(`综合尾部风险指数：**${((1 - noRisk) * 100).toFixed(1)}%**`);
+    lines.push(`综合尾部风险指数：**${index.toFixed(1)}%**`);
+    if (rawUnion - index > 5) {
+      lines.push(`> 注：朴素并概率 ${rawUnion.toFixed(1)}%，已做互斥修正`);
+    }
     lines.push('');
   }
 

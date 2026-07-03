@@ -75,12 +75,14 @@ export function crossValidate(
   }
 
   if (sources.length === 1) {
+    const grade = sources[0].grade;
+    const confidence = grade === 'A' ? 55 : grade === 'B' ? 45 : 35;
     return {
       field,
       sources,
-      consensus: 'verified',
+      consensus: 'single_source',
       finalValue: sources[0].value,
-      confidence: 70, // 单源默认70%置信度
+      confidence,
     };
   }
 

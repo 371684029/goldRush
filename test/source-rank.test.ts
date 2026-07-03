@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkFreshness, gradeSource } from '../src/utils/source-rank';
+import { checkFreshness, gradeSource, crossValidate } from '../src/utils/source-rank';
 
 describe('checkFreshness — 非法时间戳防御', () => {
   it('非法时间戳应判定为不新鲜并给出警告', () => {
@@ -29,5 +29,18 @@ describe('gradeSource', () => {
 
   it('未知来源默认 B 级', () => {
     expect(gradeSource('某不知名网站')).toBe('B');
+  });
+});
+
+describe('crossValidate — 单源不应标为 verified', () => {
+  it('单源返回 single_source 且置信度低于多源 verified', () => {
+    const r = crossValidate('london.price', [{
+      value: 2650,
+      source: 'Kitco',
+      grade: 'B',
+      timestamp: new Date().toISOString(),
+    }]);
+    expect(r.consensus).toBe('single_source');
+    expect(r.confidence).toBeLessThan(70);
   });
 });
