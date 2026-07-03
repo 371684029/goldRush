@@ -19,6 +19,7 @@ import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
+import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
@@ -33,6 +34,24 @@ export async function analysisCommand(options: {
 }): Promise<number> {
   const startedAt = new Date().toISOString();
   console.log('\n🔬 GoldRush 综合分析启动...\n');
+
+  // Step 0: 自动补齐历史金价（Yahoo GC=F，无需 Tavily）
+  console.log('  📜 Step 0: 补齐历史金价 (60 天)...');
+  const priceRepo = new GoldPricesRepo(getDb());
+  try {
+    const hist = await ensureGoldPriceHistory(priceRepo, 60);
+    if (hist.filled > 0) {
+      console.log(`  ✅ Yahoo 已补 ${hist.filled} 个交易日（共 ${hist.tradingRows} 行，可算 MA/RSI/MACD）`);
+    } else if (hist.readyForAnalysis) {
+      console.log(`  ✅ 历史金价就绪（${hist.tradingRows} 个交易日）`);
+    } else {
+      console.log(`  ⚠️ 历史仅 ${hist.tradingRows} 行（需 ≥${MIN_TRADING_ROWS_FOR_ANALYSIS}），指标可能不完整`);
+      console.log('  💡 可先运行: goldrush init-history --days 60');
+    }
+  } catch (err) {
+    console.warn('  ⚠️ 历史自动补齐失败:', err instanceof Error ? err.message : err);
+    console.warn('  💡 请运行 goldrush init-history --days 60 或检查 Yahoo Finance 网络');
+  }
 
   // Step 1: 数据采集 + 验证
   console.log('  📡 Step 1: 采集市场数据...');

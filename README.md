@@ -54,8 +54,11 @@ node dist/index.js analysis -H mid
 # 基金对比分析
 node dist/index.js fund
 
-# 回测校准
-node dist/index.js calibrate
+# 首次回填历史（无需 Tavily，Yahoo 日线）
+node dist/index.js init-history --days 60
+
+# 综合分析（启动前自动补齐 60 天历史）
+node dist/index.js analysis
 
 # 查看历史数据
 node dist/index.js history
@@ -89,7 +92,7 @@ goldrush analysis
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
 | `goldrush snapshot` | 手动保存当日数据快照 | P1 |
-| `goldrush init-history` | 回填缺失历史金价 + 采集当日（`--days 60`） | P1 |
+| `goldrush init-history` | **Yahoo GC=F 回填 60 天** + 可选当日采集（`--days 60`） | P1 |
 | `goldrush history` | 查看历史金价 | P1 |
 | `goldrush history --type reports` | 查看历史分析报告 | P1 |
 | `goldrush history --type funds` | 查看本地基金净值（fund_nav） | P1 |

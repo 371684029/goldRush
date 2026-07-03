@@ -9,6 +9,7 @@ import { SearchCacheRepo } from '../db/search-cache.js';
 import { SearchRouter } from '../data/search-router.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import { listMissingLondonDates, normalizeHistoryRows, type HistoryPriceRow } from '../utils/history-backfill.js';
+import { ensureGoldPriceHistory } from '../utils/ensure-gold-history.js';
 import { TRACKED_FUNDS } from '../types/fund.js';
 import type { MarketData, SearchResult } from '../types/market.js';
 import { parseMarketData } from '../schemas/market.js';
@@ -130,19 +131,23 @@ export class DataCollectorAgent extends BaseAgent {
   }
 
   /**
-   * 回填过去 days 天缺失的 london_close（需 TAVILY + LLM）。
-   * 仅写入缺失日，不覆盖已有数据。
+   * 回填过去 days 天缺失的 london_close。
+   * 优先 Yahoo GC=F 日线（无需 Tavily）；不足时再尝试 Tavily+LLM。
    */
   async backfillHistory(days = 60): Promise<{ filled: number; attempted: number }> {
-    if (!this.searchRouter.enabled) {
-      throw new Error('未配置 TAVILY_API_KEY，无法回填历史金价。');
-    }
-
     const db = getDb();
     const repo = new GoldPricesRepo(db);
+
+    const yahooResult = await ensureGoldPriceHistory(repo, days);
+    let filled = yahooResult.filled;
+
     const missing = listMissingLondonDates(repo, days);
-    if (missing.length === 0) {
-      return { filled: 0, attempted: 0 };
+    if (missing.length === 0 || !this.searchRouter.enabled) {
+      return { filled, attempted: yahooResult.attempted };
+    }
+
+    if (yahooResult.readyForAnalysis) {
+      return { filled, attempted: yahooResult.attempted };
     }
 
     const from = missing[0];
@@ -156,7 +161,7 @@ export class DataCollectorAgent extends BaseAgent {
     const searchResults = await this.searchRouter.searchBatch(searches, { numResults: 5 });
     const totalResults = Array.from(searchResults.values()).reduce((n, arr) => n + arr.length, 0);
     if (totalResults === 0) {
-      throw new Error('历史金价搜索无结果，无法回填。');
+      return { filled, attempted: yahooResult.attempted + missing.length };
     }
 
     const schema = {
@@ -179,8 +184,6 @@ export class DataCollectorAgent extends BaseAgent {
     };
 
     const allowed = new Set(missing);
-    let filled = 0;
-
     const CHUNK = 20;
     for (let i = 0; i < missing.length; i += CHUNK) {
       const chunk = missing.slice(i, i + CHUNK);
@@ -193,11 +196,11 @@ export class DataCollectorAgent extends BaseAgent {
       );
       const rows = normalizeHistoryRows(extracted.rows ?? [], allowed);
       for (const row of rows) {
-        repo.upsert({
+        repo.upsertBackfill({
           date: row.date,
           londonClose: row.londonClose,
-          londonHigh: null,
-          londonLow: null,
+          londonHigh: row.londonClose,
+          londonLow: row.londonClose,
           shanghaiClose: row.shanghaiClose ?? null,
           shanghaiHigh: null,
           shanghaiLow: null,
@@ -211,7 +214,7 @@ export class DataCollectorAgent extends BaseAgent {
       }
     }
 
-    return { filled, attempted: missing.length };
+    return { filled, attempted: yahooResult.attempted + missing.length };
   }
 
   /** 采集并持久化跟踪基金净值（供 fund 命令） */
