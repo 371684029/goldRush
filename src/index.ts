@@ -11,6 +11,7 @@ import { historyCommand } from './commands/history.js';
 import { diffCommand } from './commands/diff.js';
 import { digestCommand } from './commands/digest.js';
 import { notifyCommand } from './commands/notify.js';
+import { outlookCommand } from './commands/outlook.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -174,6 +175,20 @@ program
         daily: opts.daily ?? false,
         exitCode: parseInt(opts.exit, 10) || 0,
       });
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('outlook')
+  .description('长期方向预期（1/3/5 年，基于最新分析报告）')
+  .option('--json', 'JSON 输出')
+  .option('--md', '写入 docs/goldrush-outlook-latest.md')
+  .action(async (opts) => {
+    try {
+      const code = outlookCommand({ json: opts.json ?? false, md: opts.md ?? false });
+      if (code !== 0) process.exit(code);
     } finally {
       closeDb();
     }

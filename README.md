@@ -102,6 +102,8 @@ goldrush analysis
 | `goldrush calibrate --tearsheet` | 区间收益分布 + 权益曲线 | P1 |
 | `goldrush notify --test` | Webhook 连通性测试 | P1 |
 | `goldrush notify --daily --exit 0` | 每日任务结束告警 | P1 |
+| `goldrush outlook` | **1/3/5 年长期方向预期**（读最新报告） | P1 |
+| `goldrush outlook --md` | 长期展望写入 docs/ | P1 |
 
 ---
 

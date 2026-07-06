@@ -12,6 +12,7 @@ import { getConfig } from '../utils/config.js';
 import { buildScoreBreakdown, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
 import { detectMacroRegime, formatMacroRegimeLine } from '../utils/macro-regime.js';
 import { buildJudgeVerdict, formatJudgeVerdictConsole } from '../utils/judge-verdict.js';
+import { buildLongTermOutlook, formatLongTermOutlookConsole } from '../utils/long-term-outlook.js';
 import { findSimilarPatterns } from '../utils/scenario-similarity.js';
 import { buildRunManifest, saveRunManifest, wrapAnalysisOutputV1 } from '../utils/run-manifest.js';
 import { getDb } from '../db/index.js';
@@ -118,6 +119,17 @@ export async function analysisCommand(options: {
   const macroRegime = detectMacroRegime(marketData, goldDeviation);
   console.log(`  🌐 宏观阶段: ${formatMacroRegimeLine(macroRegime)}`);
 
+  const longTermOutlook = buildLongTermOutlook({
+    technical: report.technical,
+    fundamental: report.fundamental,
+    sentiment: report.sentiment,
+    rebuttal: report.rebuttal,
+    overallScore: report.overall.score,
+    overallDirection: report.overall.direction,
+    macroRegime,
+  });
+  report.longTermOutlook = longTermOutlook;
+
   let similarPatterns: PatternMatch[] = [];
   try {
     const db = getDb();
@@ -153,11 +165,12 @@ export async function analysisCommand(options: {
     macroRegime,
     judgeVerdict,
     similarPatterns,
+    longTermOutlook: report.longTermOutlook,
   });
   const manifestPath = saveRunManifest(manifest);
   console.log(`  📦 审计包已保存: ${manifestPath}`);
 
-  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown };
+  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown, longTermOutlook };
 
   // 输出报告
   if (options.json) {
@@ -205,6 +218,7 @@ function printReport(
     macroRegime?: import('../utils/macro-regime.js').MacroRegime;
     judgeVerdict?: import('../utils/judge-verdict.js').JudgeVerdict;
     similarPatterns?: PatternMatch[];
+    longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
@@ -226,6 +240,10 @@ function printReport(
       const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : '待回填';
       console.log(`  · ${p.date} 相似 ${(p.similarity * 100).toFixed(0)}% | 5日后 ${ret} | 当时评分 ${p.score}`);
     }
+  }
+
+  if (extras?.longTermOutlook) {
+    console.log('\n' + formatLongTermOutlookConsole(extras.longTermOutlook));
   }
 
   // 综合研判

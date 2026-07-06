@@ -25,6 +25,7 @@ export interface RunManifest {
   macroRegime: MacroRegime;
   judgeVerdict: JudgeVerdict;
   similarPatterns: PatternMatch[];
+  longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
   goldrushVersion: string;
 }
 
@@ -43,6 +44,7 @@ export function buildRunManifest(params: {
   macroRegime: MacroRegime;
   judgeVerdict: JudgeVerdict;
   similarPatterns: PatternMatch[];
+  longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
 }): RunManifest {
   const cfg = getConfig();
   return {
@@ -58,6 +60,7 @@ export function buildRunManifest(params: {
     macroRegime: params.macroRegime,
     judgeVerdict: params.judgeVerdict,
     similarPatterns: params.similarPatterns,
+    longTermOutlook: params.report.longTermOutlook,
     goldrushVersion: '0.1.0',
   };
 }

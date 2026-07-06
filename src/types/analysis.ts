@@ -177,6 +177,35 @@ export interface GoldAnalysisReport {
     shortTerm: ShortTermStrategy;
     midTerm: MidTermStrategy;
   };
+  /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
+  longTermOutlook?: LongTermOutlook;
+}
+
+/** 长期展望 — 单期限 */
+export type LongTermHorizonYears = 1 | 3 | 5;
+
+export interface LongTermHorizonOutlook {
+  years: LongTermHorizonYears;
+  label: string;
+  direction: Direction;
+  /** 偏多强度 0–100（50=中性） */
+  biasScore: number;
+  confidence: 'low' | 'moderate' | 'high';
+  /** 方向描述，如「温和上行」 */
+  trendLabel: string;
+  /** 名义回报区间（累计，非承诺） */
+  returnBand: string;
+  drivers: string[];
+  risks: string[];
+  /** 支付宝定投者操作建议 */
+  dcaAdvice: string;
+}
+
+/** 长期展望汇总 */
+export interface LongTermOutlook {
+  summary: string;
+  horizons: LongTermHorizonOutlook[];
+  disclaimer: string;
 }
 
 /** 分析报告存储记录 */
