@@ -11,6 +11,7 @@ import { historyCommand } from './commands/history.js';
 import { diffCommand } from './commands/diff.js';
 import { digestCommand } from './commands/digest.js';
 import { notifyCommand } from './commands/notify.js';
+import { outlookCommand } from './commands/outlook.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -119,10 +120,11 @@ program
 
 program
   .command('init-history')
-  .description('首次运行：拉取最近60天历史数据')
-  .action(async () => {
+  .description('首次运行：回填缺失历史金价并采集当日')
+  .option('--days <n>', '回溯日历天数', '60')
+  .action(async (opts) => {
     try {
-      await initHistoryCommand();
+      await initHistoryCommand(parseInt(opts.days, 10) || 60);
     } finally {
       closeDb();
     }
@@ -131,16 +133,16 @@ program
 program
   .command('history')
   .description('查看本地历史数据和报告')
-  .option('--type <type>', '查看类型: prices/reports', 'prices')
+  .option('--type <type>', '查看类型: prices/reports/funds', 'prices')
   .option('--days <n>', '查看天数', '30')
   .action(async (opts) => {
     const type = opts.type as string;
-    if (!['prices', 'reports'].includes(type)) {
-      console.error('❌ --type 必须是 prices 或 reports');
+    if (!['prices', 'reports', 'funds'].includes(type)) {
+      console.error('❌ --type 必须是 prices、reports 或 funds');
       process.exit(1);
     }
     try {
-      await historyCommand(type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
+      await historyCommand(type as 'prices' | 'reports' | 'funds', parseInt(opts.days, 10) || 30);
     } finally {
       closeDb();
     }
@@ -173,6 +175,20 @@ program
         daily: opts.daily ?? false,
         exitCode: parseInt(opts.exit, 10) || 0,
       });
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('outlook')
+  .description('长期方向预期（1/3/5 年，基于最新分析报告）')
+  .option('--json', 'JSON 输出')
+  .option('--md', '写入 docs/goldrush-outlook-latest.md')
+  .action(async (opts) => {
+    try {
+      const code = outlookCommand({ json: opts.json ?? false, md: opts.md ?? false });
+      if (code !== 0) process.exit(code);
     } finally {
       closeDb();
     }

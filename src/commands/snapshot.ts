@@ -1,9 +1,10 @@
 // goldrush snapshot — 手动保存数据快照
-// goldrush init-history — 首次拉取历史数据
+// goldrush init-history — Yahoo 回填 + 当日采集
 
 import { getDb } from '../db/index.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { DataCollectorAgent } from '../agents/data-collector.js';
+import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
 import { todayDate } from '../utils/time.js';
 
 export async function snapshotCommand(): Promise<void> {
@@ -12,7 +13,6 @@ export async function snapshotCommand(): Promise<void> {
   const db = getDb();
   const repo = new GoldPricesRepo(db);
 
-  // 检查今日是否已有数据
   const today = todayDate();
   const existing = repo.getByDate(today);
 
@@ -23,7 +23,6 @@ export async function snapshotCommand(): Promise<void> {
     return;
   }
 
-  // 采集数据
   console.log('  采集当前市场数据...');
   const collector = new DataCollectorAgent();
   try {
@@ -38,38 +37,70 @@ export async function snapshotCommand(): Promise<void> {
   }
 }
 
-export async function initHistoryCommand(): Promise<void> {
-  console.log('\n📜 增量积累历史数据...\n');
+export async function initHistoryCommand(days = 60): Promise<void> {
+  console.log(`\n📜 历史数据初始化（目标 ${days} 天）...\n`);
 
   const db = getDb();
   const repo = new GoldPricesRepo(db);
-  const existing = repo.count();
+  const before = repo.count();
 
-  console.log(`  当前已有 ${existing} 条历史数据`);
-  console.log('  ⚠️ 本命令只采集当日数据，不支持一次性回填历史数据。');
+  console.log(`  当前已有 ${before} 条历史数据`);
+  console.log('  📥 从 Yahoo Finance (GC=F) 拉取日线并写入 SQLite...');
 
-  // 检查今日是否已有数据，避免重复写入
-  const today = todayDate();
-  const existingToday = repo.getByDate(today);
-  if (existingToday) {
-    console.log(`  ⏭️ ${today} 的数据已存在，跳过当日采集。`);
+  try {
+    const hist = await ensureGoldPriceHistory(repo, days);
+    if (hist.filled > 0) {
+      console.log(`  ✅ Yahoo 补全 ${hist.filled} 个交易日（窗口内共 ${hist.tradingRows} 行 london_close）`);
+    } else if (hist.readyForAnalysis) {
+      console.log(`  ✅ 历史已就绪（${hist.tradingRows} 个交易日，无需补全）`);
+    } else {
+      console.log(`  ⚠️ 窗口内仅 ${hist.tradingRows} 行，建议检查网络后重试`);
+    }
+
+    if (!hist.readyForAnalysis) {
+      console.log('  🔍 尝试 Tavily+LLM 补充剩余缺失日...');
+      const collector = new DataCollectorAgent();
+      try {
+        const { filled } = await collector.backfillHistory(days);
+        if (filled > hist.filled) {
+          console.log(`  ✅ 额外补全 ${filled - hist.filled} 行`);
+        }
+      } catch (err) {
+        console.error('  ⚠️ Tavily 补充失败:', err instanceof Error ? err.message : err);
+      } finally {
+        await collector.cleanup();
+      }
+    }
+  } catch (err) {
+    console.error('  ❌ Yahoo 回填失败:', err instanceof Error ? err.message : err);
+    console.log('  💡 请确认服务器可访问 query1.finance.yahoo.com');
+  }
+
+  const tradingRows = new GoldPricesRepo(db).getRecent(days).filter(r => r.londonClose != null).length;
+  if (tradingRows >= MIN_TRADING_ROWS_FOR_ANALYSIS) {
+    console.log(`  📈 技术指标所需数据已满足（≥${MIN_TRADING_ROWS_FOR_ANALYSIS} 个交易日）`);
   } else {
+    console.log(`  ⚠️ 仍不足 ${MIN_TRADING_ROWS_FOR_ANALYSIS} 个交易日（当前 ${tradingRows}）`);
+  }
+
+  const today = todayDate();
+  if (!repo.getByDate(today)?.londonClose) {
+    console.log('  📸 采集当日实时数据（需 TAVILY + LLM，可选）...');
     const collector = new DataCollectorAgent();
     try {
       await collector.collectMarketData();
       console.log('  ✅ 当日数据已保存');
     } catch (err) {
-      console.error('  ❌ 采集失败:', err instanceof Error ? err.message : err);
+      console.log('  ⏭️ 跳过当日采集:', err instanceof Error ? err.message : err);
+      console.log('  💡 历史回填已完成，可先运行 goldrush calibrate / 查看 history');
     } finally {
       await collector.cleanup();
     }
+  } else {
+    console.log(`  ⏭️ ${today} 已有当日数据`);
   }
 
   const finalCount = repo.count();
-  console.log(`\n  📊 现有 ${finalCount} 条历史数据`);
-  console.log('  💡 数据积累方式（推荐）：');
-  console.log('     每日运行 goldrush price 或 goldrush snapshot，自动追加当日数据');
-  console.log('     也可设置定时任务，示例 crontab：');
-  console.log('     30 11 * * * cd /path/to/goldRush && node dist/index.js snapshot >> logs/daily.log 2>&1');
-  console.log('  💡 至少积累 20 天后，技术指标（MA/RSI/MACD）才生效。');
+  console.log(`\n  📊 gold_prices 共 ${finalCount} 条（+${finalCount - before}）`);
+  console.log('  💡 现在可运行: goldrush analysis');
 }

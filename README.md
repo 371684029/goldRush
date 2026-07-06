@@ -54,8 +54,11 @@ node dist/index.js analysis -H mid
 # 基金对比分析
 node dist/index.js fund
 
-# 回测校准
-node dist/index.js calibrate
+# 首次回填历史（无需 Tavily，Yahoo 日线）
+node dist/index.js init-history --days 60
+
+# 综合分析（启动前自动补齐 60 天历史）
+node dist/index.js analysis
 
 # 查看历史数据
 node dist/index.js history
@@ -89,9 +92,18 @@ goldrush analysis
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
 | `goldrush snapshot` | 手动保存当日数据快照 | P1 |
-| `goldrush init-history` | 首次拉取历史数据 | P1 |
+| `goldrush init-history` | **Yahoo GC=F 回填 60 天** + 可选当日采集（`--days 60`） | P1 |
 | `goldrush history` | 查看历史金价 | P1 |
 | `goldrush history --type reports` | 查看历史分析报告 | P1 |
+| `goldrush history --type funds` | 查看本地基金净值（fund_nav） | P1 |
+| `goldrush diff <dateA> <dateB>` | 对比两日报告变化 | P1 |
+| `goldrush digest --days 7` | 周期摘要（均分、跳变） | P1 |
+| `goldrush digest --md` | 周期摘要写入 docs/ | P1 |
+| `goldrush calibrate --tearsheet` | 区间收益分布 + 权益曲线 | P1 |
+| `goldrush notify --test` | Webhook 连通性测试 | P1 |
+| `goldrush notify --daily --exit 0` | 每日任务结束告警 | P1 |
+| `goldrush outlook` | **1/3/5 年长期方向预期**（读最新报告） | P1 |
+| `goldrush outlook --md` | 长期展望写入 docs/ | P1 |
 
 ---
 
@@ -129,14 +141,15 @@ Orchestrator (编排层)
 
 ## 核心设计
 
-### 双引擎搜索
+### 搜索层（Tavily 单引擎）
 
-| 数据类型 | 搜索引擎 | 原因 |
-|---------|---------|------|
-| 国际金价 XAU/USD | Tavily | 金融分类搜索 |
-| COMEX/美联储/美债 | Tavily | 英文金融数据覆盖好 |
-| 上海金/ETF/基金 | Tavily + opencode fallback | 中文数据源覆盖好 |
-| 央行购金/地缘风险 | Tavily | 中英文兼顾 |
+| 数据类型 | 方式 | 说明 |
+|---------|------|------|
+| 国际金价 / COMEX / 美债 | Tavily `finance` topic | 联网金融搜索 |
+| 上海金 / ETF / 基金净值 | Tavily | 同上 |
+| 搜索结果缓存 | SQLite `search_cache` | 默认 5 分钟 TTL，降低重复调用 |
+
+未配置 `TAVILY_API_KEY` 时搜索降级为空结果；`history` / `calibrate` 等纯本地命令不受影响。
 
 ### 信息可靠性五道防线
 
@@ -265,7 +278,7 @@ goldRush/
 │   │   └── history.ts        # 历史数据
 │   ├── agents/
 │   │   ├── base.ts           # Agent 基类 (opencode CLI)
-│   │   ├── data-collector.ts # 数据采集 + 双引擎搜索
+│   │   ├── data-collector.ts # 数据采集 + Tavily 搜索
 │   │   ├── validator.ts      # 信息验证 + 来源分级
 │   │   ├── analysis-agents.ts# 四维度 Agent (技术/基本/情绪/基金)
 │   │   ├── rebuttal.ts       # 强制反驳 Agent

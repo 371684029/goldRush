@@ -12,6 +12,7 @@ import { getConfig } from '../utils/config.js';
 import { buildScoreBreakdown, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
 import { detectMacroRegime, formatMacroRegimeLine } from '../utils/macro-regime.js';
 import { buildJudgeVerdict, formatJudgeVerdictConsole } from '../utils/judge-verdict.js';
+import { buildLongTermOutlook, formatLongTermOutlookConsole } from '../utils/long-term-outlook.js';
 import { findSimilarPatterns } from '../utils/scenario-similarity.js';
 import { buildRunManifest, saveRunManifest, wrapAnalysisOutputV1 } from '../utils/run-manifest.js';
 import { getDb } from '../db/index.js';
@@ -19,6 +20,7 @@ import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
+import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
@@ -33,6 +35,24 @@ export async function analysisCommand(options: {
 }): Promise<number> {
   const startedAt = new Date().toISOString();
   console.log('\n🔬 GoldRush 综合分析启动...\n');
+
+  // Step 0: 自动补齐历史金价（Yahoo GC=F，无需 Tavily）
+  console.log('  📜 Step 0: 补齐历史金价 (60 天)...');
+  const priceRepo = new GoldPricesRepo(getDb());
+  try {
+    const hist = await ensureGoldPriceHistory(priceRepo, 60);
+    if (hist.filled > 0) {
+      console.log(`  ✅ Yahoo 已补 ${hist.filled} 个交易日（共 ${hist.tradingRows} 行，可算 MA/RSI/MACD）`);
+    } else if (hist.readyForAnalysis) {
+      console.log(`  ✅ 历史金价就绪（${hist.tradingRows} 个交易日）`);
+    } else {
+      console.log(`  ⚠️ 历史仅 ${hist.tradingRows} 行（需 ≥${MIN_TRADING_ROWS_FOR_ANALYSIS}），指标可能不完整`);
+      console.log('  💡 可先运行: goldrush init-history --days 60');
+    }
+  } catch (err) {
+    console.warn('  ⚠️ 历史自动补齐失败:', err instanceof Error ? err.message : err);
+    console.warn('  💡 请运行 goldrush init-history --days 60 或检查 Yahoo Finance 网络');
+  }
 
   // Step 1: 数据采集 + 验证
   console.log('  📡 Step 1: 采集市场数据...');
@@ -99,6 +119,17 @@ export async function analysisCommand(options: {
   const macroRegime = detectMacroRegime(marketData, goldDeviation);
   console.log(`  🌐 宏观阶段: ${formatMacroRegimeLine(macroRegime)}`);
 
+  const longTermOutlook = buildLongTermOutlook({
+    technical: report.technical,
+    fundamental: report.fundamental,
+    sentiment: report.sentiment,
+    rebuttal: report.rebuttal,
+    overallScore: report.overall.score,
+    overallDirection: report.overall.direction,
+    macroRegime,
+  });
+  report.longTermOutlook = longTermOutlook;
+
   let similarPatterns: PatternMatch[] = [];
   try {
     const db = getDb();
@@ -134,11 +165,12 @@ export async function analysisCommand(options: {
     macroRegime,
     judgeVerdict,
     similarPatterns,
+    longTermOutlook: report.longTermOutlook,
   });
   const manifestPath = saveRunManifest(manifest);
   console.log(`  📦 审计包已保存: ${manifestPath}`);
 
-  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown };
+  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown, longTermOutlook };
 
   // 输出报告
   if (options.json) {
@@ -186,6 +218,7 @@ function printReport(
     macroRegime?: import('../utils/macro-regime.js').MacroRegime;
     judgeVerdict?: import('../utils/judge-verdict.js').JudgeVerdict;
     similarPatterns?: PatternMatch[];
+    longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
@@ -207,6 +240,10 @@ function printReport(
       const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : '待回填';
       console.log(`  · ${p.date} 相似 ${(p.similarity * 100).toFixed(0)}% | 5日后 ${ret} | 当时评分 ${p.score}`);
     }
+  }
+
+  if (extras?.longTermOutlook) {
+    console.log('\n' + formatLongTermOutlookConsole(extras.longTermOutlook));
   }
 
   // 综合研判

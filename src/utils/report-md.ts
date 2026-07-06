@@ -12,6 +12,8 @@ import { getConfig } from './config.js';
 import type { MacroRegime } from './macro-regime.js';
 import type { JudgeVerdict } from './judge-verdict.js';
 import { formatJudgeVerdictMarkdown } from './judge-verdict.js';
+import { formatLongTermOutlookMarkdown } from './long-term-outlook.js';
+import type { LongTermOutlook } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
 import type { ScoreBreakdown } from './score-breakdown.js';
 
@@ -20,6 +22,7 @@ export interface ReportMarkdownExtras {
   judgeVerdict?: JudgeVerdict;
   similarPatterns?: PatternMatch[];
   scoreBreakdown?: ScoreBreakdown;
+  longTermOutlook?: LongTermOutlook;
 }
 
 function dirText(d: string | undefined): string {
@@ -167,6 +170,11 @@ export function formatReportMarkdown(
     lines.push(`- 支撑区：${na(m.keyLevels?.supportZone)}　|　阻力区：${na(m.keyLevels?.resistanceZone)}`);
     lines.push(`- ⚠️ 风险提示：${na(m.riskWarning)}`);
     lines.push('');
+  }
+
+  const longTerm = extras?.longTermOutlook ?? report.longTermOutlook;
+  if (longTerm) {
+    lines.push(formatLongTermOutlookMarkdown(longTerm));
   }
 
   // 尾部风险
