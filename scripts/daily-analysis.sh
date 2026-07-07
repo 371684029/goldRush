@@ -14,15 +14,11 @@ LOG_FILE="$LOG_DIR/daily-$(date +%Y-%m-%d).log"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] GoldRush 每日分析开始" >> "$LOG_FILE" 2>&1
 
-# 拉取最新代码，有变更才构建；网络失败不阻断分析
-BEFORE=$(git rev-parse HEAD)
+# 拉取最新代码（网络失败不阻断）
 git pull --rebase >> "$LOG_FILE" 2>&1 || true
-AFTER=$(git rev-parse HEAD)
-
-if [ "$BEFORE" != "$AFTER" ]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 检测到新代码，重新构建..." >> "$LOG_FILE" 2>&1
-  npm run build >> "$LOG_FILE" 2>&1
-fi
+# 每次均构建确保 dist/ 与 src/ 一致
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 编译..." >> "$LOG_FILE" 2>&1
+npm run build >> "$LOG_FILE" 2>&1
 
 # 运行分析（失败时仍继续告警流程）
 set +e

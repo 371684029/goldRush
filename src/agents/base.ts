@@ -5,16 +5,6 @@
 import { execSync } from 'child_process';
 import type { ModelConfig } from '../types/config.js';
 
-/**
- * Escape a string for safe use in a shell echo statement.
- * Single-quote wrapping: only problematic char is the single quote itself.
- * Replace each ' with '\'' (end current quote, literal quote, start new quote)
- */
-function shellEscape(input: string): string {
-  const escaped = input.replace(/'/g, "'\\''");
-  return `'${escaped}'`;
-}
-
 export interface AgentOptions {
   name: string;
   model: ModelConfig;
@@ -32,20 +22,16 @@ export class BaseAgent {
     this.systemPrompt = options.systemPrompt ?? '';
   }
 
-  /** 调用 opencode run CLI 并返回 LLM 输出文本 */
+   /** 调用 opencode run CLI 并返回 LLM 输出文本 */
   private callOpencodeRun(promptText: string, system?: string): string {
-    let fullPrompt = promptText;
-    if (system) {
-      fullPrompt = `${system}\n\n${promptText}`;
-    }
-
+    const fullPrompt = system ? `${system}\n\n${promptText}` : promptText;
     const modelArg = `${this.model.providerID}/${this.model.modelID}`;
-    const escapedPrompt = shellEscape(fullPrompt);
 
-    // 用 echo 管道传给 opencode run；stderr 是日志，用 2>/dev/null 过滤
-    const cmd = `echo ${escapedPrompt} | opencode run -m ${modelArg} 2>/dev/null`;
+    // 通过 stdin 传 prompt，避免 shell 转义和命令行长度限制
+    const cmd = `opencode run -m ${modelArg} 2>/dev/null`;
 
     const result = execSync(cmd, {
+      input: fullPrompt,
       timeout: 300_000, // 5 分钟
       maxBuffer: 1024 * 1024 * 10, // 10MB
       shell: '/bin/bash',
