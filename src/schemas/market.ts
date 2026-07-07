@@ -6,13 +6,32 @@ import type { MarketData, SourceGrade, SourcedPrice } from '../types/market.js';
 
 const sourceGradeSchema = z.enum(['A', 'B', 'C']).catch('B' as SourceGrade);
 
-const sourcedPriceSchema = z.object({
+const sourcedPriceInner = z.object({
   value: z.number().finite().nullable().optional(),
   change: z.number().finite().optional().default(0),
   source: z.string().optional().default('unknown'),
   sourceGrade: sourceGradeSchema.optional(),
   verifiedAt: z.string().optional().default(''),
-}).transform((p): SourcedPrice | null => {
+});
+
+const sourcedPriceSchema = z.union([
+  z.number().finite(),
+  sourcedPriceInner,
+  z.null(),
+]).transform((p): SourcedPrice | null => {
+  // null → 返回 null，调用方处理
+  if (p == null) return null;
+  // 如果 LLM 只输出一个数字（如 4175.39），自动补齐为对象
+  if (typeof p === 'number') {
+    return {
+      value: p,
+      change: 0,
+      source: 'unknown',
+      sourceGrade: 'B' as SourceGrade,
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+  // 对象格式
   if (p.value == null || !Number.isFinite(p.value)) return null;
   const source = p.source || 'unknown';
   return {
@@ -33,22 +52,22 @@ const marketDataSchema = z.object({
     altPrices: optionalSourcedPriceList,
     high: z.unknown().optional(),
     low: z.unknown().optional(),
-  }).passthrough(),
+  }).passthrough().optional().catch(undefined),
   shanghai: z.object({
     price: sourcedPriceSchema,
     altPrices: optionalSourcedPriceList,
     high: z.unknown().optional(),
     low: z.unknown().optional(),
-  }).passthrough(),
+  }).passthrough().optional().catch(undefined),
   etf: z.object({
     code: z.string().optional().default('518880'),
     name: z.string().optional().default('华安黄金ETF'),
     nav: sourcedPriceSchema,
     premiumDiscount: z.unknown().optional(),
-  }).passthrough(),
+  }).passthrough().optional().catch(undefined),
   dollarIndex: z.object({
     value: sourcedPriceSchema,
-  }).passthrough(),
+  }).passthrough().optional().catch(undefined),
   usTreasury: z.object({
     yield10y: sourcedPriceSchema,
     tips: z.object({
@@ -57,7 +76,7 @@ const marketDataSchema = z.object({
       sourceGrade: sourceGradeSchema.optional(),
       verifiedAt: z.string().optional(),
     }).nullable().optional(),
-  }).passthrough(),
+  }).passthrough().optional().catch(undefined),
 }).passthrough();
 
 function nullPrice(): SourcedPrice {
@@ -77,37 +96,38 @@ export function parseMarketData(input: unknown): MarketData {
   const filterAlts = (alts: Array<SourcedPrice | null>): SourcedPrice[] =>
     alts.filter((p): p is SourcedPrice => p != null);
 
-  const londonPrice = parsed.london.price ?? nullPrice();
-  const shanghaiPrice = parsed.shanghai.price ?? nullPrice();
-  const etfNav = parsed.etf.nav ?? nullPrice();
-  const dxy = parsed.dollarIndex.value ?? nullPrice();
-  const y10 = parsed.usTreasury.yield10y ?? nullPrice();
+  const londonPrice = parsed.london?.price ?? nullPrice();
+  const shanghaiPrice = parsed.shanghai?.price ?? nullPrice();
+  const etfNav = parsed.etf?.nav ?? nullPrice();
+  const dxy = parsed.dollarIndex?.value ?? nullPrice();
+  const y10 = parsed.usTreasury?.yield10y ?? nullPrice();
+  const tips = parsed.usTreasury?.tips;
 
   return {
     timestamp: parsed.timestamp,
     london: {
-      ...parsed.london,
+      ...(parsed.london ?? {}),
       price: londonPrice,
-      altPrices: filterAlts(parsed.london.altPrices as Array<SourcedPrice | null>),
+      altPrices: filterAlts((parsed.london?.altPrices ?? []) as Array<SourcedPrice | null>),
     },
     shanghai: {
-      ...parsed.shanghai,
+      ...(parsed.shanghai ?? {}),
       price: shanghaiPrice,
-      altPrices: filterAlts(parsed.shanghai.altPrices as Array<SourcedPrice | null>),
+      altPrices: filterAlts((parsed.shanghai?.altPrices ?? []) as Array<SourcedPrice | null>),
     },
     etf: {
-      ...parsed.etf,
+      ...(parsed.etf ?? {}),
       nav: etfNav,
     },
     dollarIndex: { value: dxy },
     usTreasury: {
       yield10y: y10,
-      tips: parsed.usTreasury.tips?.value != null
+      tips: tips?.value != null
         ? {
-            value: parsed.usTreasury.tips.value,
-            source: parsed.usTreasury.tips.source ?? 'unknown',
-            sourceGrade: (parsed.usTreasury.tips.sourceGrade ?? 'B') as SourceGrade,
-            verifiedAt: parsed.usTreasury.tips.verifiedAt ?? '',
+            value: tips.value,
+            source: tips.source ?? 'unknown',
+            sourceGrade: (tips.sourceGrade ?? 'B') as SourceGrade,
+            verifiedAt: tips.verifiedAt ?? '',
           }
         : { value: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: '' },
     },
