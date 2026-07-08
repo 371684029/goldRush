@@ -16,6 +16,70 @@ import {
   computeTechnicalRuleScore,
 } from '../utils/technical-rule-score.js';
 
+// === 超时 / 失败时的中性回落值 ===
+
+/** 维度分析回落：评分 50（中性），无实质论据 */
+function dimensionFallback(summary: string): {
+  score: number; direction: 'neutral'; keyPoints: string[]; counterPoints: string[]; summary: string; sources: string[];
+} {
+  return {
+    score: 50,
+    direction: 'neutral',
+    keyPoints: ['分析未完成（超时或异常），使用中性估值'],
+    counterPoints: [],
+    summary,
+    sources: [],
+  };
+}
+
+/** 技术面回落 */
+export const TECHNICAL_FALLBACK: TechnicalAnalysis = {
+  ...dimensionFallback('技术面分析超时，无法给出明确方向'),
+  shortTerm: {
+    timeframe: 'daily',
+    support: 0,
+    resistance: 0,
+    trend: '无法判断（分析超时）',
+    indicators: { ma5: '未知', ma20: '未知', macd: '未知', rsi: '未知' },
+    keySignal: '无信号（分析异常）',
+  },
+  midTerm: {
+    timeframe: 'weekly',
+    support: 0,
+    resistance: 0,
+    trend: '无法判断（分析超时）',
+    indicators: { ma20w: '未知', ma60w: '未知', macd: '未知', rsi: '未知' },
+    keySignal: '无信号（分析异常）',
+  },
+};
+
+/** 基本面回落 */
+export const FUNDAMENTAL_FALLBACK: FundamentalAnalysis = {
+  ...dimensionFallback('基本面分析超时，无法给出明确方向'),
+  dollarIndexEffect: '未知（分析异常）',
+  interestRateEffect: '未知（分析异常）',
+  inflationEffect: '未知（分析异常）',
+  fedStance: '未知（分析异常）',
+};
+
+/** 情绪面回落 */
+export const SENTIMENT_FALLBACK: SentimentAnalysis = {
+  ...dimensionFallback('情绪面分析超时，无法给出明确方向'),
+  centralBanks: '未知（分析异常）',
+  cftcPosition: '未知（分析异常）',
+  vix: '未知（分析异常）',
+  geopoliticalRisk: '未知（分析异常）',
+  etfFlows: '未知（分析异常）',
+};
+
+/** 基金面回落 */
+export const FUND_FALLBACK: FundAnalysis = {
+  funds: [],
+  valuation: { level: 'fair', indicator: '无法判断（分析异常）', action: '观望' },
+  premiumDiscount: { current: 0, trend: '未知', advice: '数据不足，建议观望' },
+  recommendation: { longTerm: '数据不足无法推荐', mediumTerm: '数据不足无法推荐', dipBuy: '数据不足无法推荐' },
+};
+
 /** 安全读取 MarketData 嵌套字段 */
 function safeVal<T>(fn: () => T, fallback: T): T {
   try { const v = fn(); return v ?? fallback; } catch { return fallback; }

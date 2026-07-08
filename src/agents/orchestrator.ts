@@ -1,6 +1,6 @@
 // 综合编排 Agent — 汇总四维度 + 反驳 + 校准 + 双轨策略
 
-import { BaseAgent } from './base.js';
+import { BaseAgent, AgentTimeoutError } from './base.js';
 import { getConfig } from '../utils/config.js';
 import { getDb } from '../db/index.js';
 import { CalibrationRepo } from '../db/calibration.js';
@@ -250,7 +250,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
 你的任务不是重新打分，而是基于 ${displayScore} 分撰写配套的综合研判、情景分析和双轨策略。
 评分只能在小范围内微调（±3分），且必须在报告中说明调整理由。`;
 
-    const result = await this.structuredPrompt<{
+    let orchestratorResult: {
       overall: {
         score: number;
         direction: Direction;
@@ -258,9 +258,50 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         shortTerm: ShortTermStrategy;
         midTerm: MidTermStrategy;
       };
-    }>(prompt, schema);
+    };
+    try {
+      orchestratorResult = await this.structuredPrompt<{
+        overall: {
+          score: number;
+          direction: Direction;
+          scenarios: Scenarios;
+          shortTerm: ShortTermStrategy;
+          midTerm: MidTermStrategy;
+        };
+      }>(prompt, schema);
+    } catch (err) {
+      console.warn(`  ⚠️ 编排 Agent 异常 (${this.name}):`, err instanceof AgentTimeoutError ? '超时' : (err instanceof Error ? err.message : err));
+      // 用四维度均分 + 中性策略构建回落报告
+      const fallbackScore = Math.round((technical.score + fundamental.score + sentiment.score) / 3);
+      return {
+        timestamp: new Date().toISOString(),
+        marketData,
+        macroRegime: opts.macroRegime,
+        causalChains: opts.causalChains,
+        scenarioProbSource: 'llm',
+        dataQuality: { overallConfidence: 60, warnings: ['编排 Agent 超时，使用回落报告'] },
+        technical,
+        fundamental,
+        sentiment,
+        fund,
+        rebuttal,
+        tailRisks: rebuttal.tailRisks ?? [],
+        overall: {
+          score: fallbackScore,
+          direction: 'neutral' as Direction,
+          scenarios: {
+            base: { probability: 50, description: '编排超时，无情景分析', goldPrice: 'N/A', action: '维持现有仓位', confidence: 'low' },
+            upside: { probability: 25, description: '无数据（分析异常）', goldPrice: 'N/A', trigger: 'N/A', action: '观望', confidence: 'low' },
+            downside: { probability: 25, description: '无数据（分析异常）', goldPrice: 'N/A', trigger: 'N/A', action: '观望', confidence: 'low' },
+          } as Scenarios,
+          shortTerm: { horizon: 'short-term', action: '数据不足暂停操作', entryZone: 'N/A', target: 'N/A', stopLoss: 'N/A', recommendedProduct: 'N/A', riskWarning: '编排 Agent 超时，策略不可用' } as ShortTermStrategy,
+          midTerm: { horizon: 'medium-term', investAdvice: { dipInvest: 'continue', positionAdjust: 'hold', recommendedFund: 'N/A' }, keyLevels: { supportZone: 'N/A', resistanceZone: 'N/A' }, riskWarning: '编排 Agent 超时，策略不可用' } as MidTermStrategy,
+          calibration: { scoreRange: 'N/A', historicalAccuracy: null, historicalAccuracy20d: null, systematicBias: '分析异常', sampleSize: 0, rawScore: fallbackScore, calibrationOffset: 0, calibrationApplied: false, calibrationReason: '编排超时回落' },
+        },
+      };
+    }
 
-    let scenarios = result.overall.scenarios;
+    let scenarios = orchestratorResult.overall.scenarios;
     let scenarioProbSource: GoldAnalysisReport['scenarioProbSource'] = 'llm';
     if (opts.scenarioProbs) {
       scenarios = applyScenarioProbabilities(scenarios, opts.scenarioProbs);
@@ -285,9 +326,9 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       rebuttal,
       tailRisks: rebuttal.tailRisks ?? [],
       overall: {
-        ...result.overall,
+        ...orchestratorResult.overall,
         scenarios,
-        score: enforceOverallScore(result.overall.score, displayScore),
+        score: enforceOverallScore(orchestratorResult.overall.score, displayScore),
         direction: displayDirection,
         calibration: {
           ...(calibrationContext ?? {

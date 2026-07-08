@@ -2,9 +2,10 @@
 
 import { DataCollectorAgent } from '../agents/data-collector.js';
 import { ValidatorAgent } from '../agents/validator.js';
-import { TechnicalAgent, FundamentalAgent, SentimentAgent, FundAgent } from '../agents/analysis-agents.js';
-import { RebuttalAgent } from '../agents/rebuttal.js';
+import { TechnicalAgent, FundamentalAgent, SentimentAgent, FundAgent, TECHNICAL_FALLBACK, FUNDAMENTAL_FALLBACK, SENTIMENT_FALLBACK, FUND_FALLBACK } from '../agents/analysis-agents.js';
+import { RebuttalAgent, REBUTTAL_FALLBACK } from '../agents/rebuttal.js';
 import { OrchestratorAgent } from '../agents/orchestrator.js';
+import { AgentTimeoutError } from '../agents/base.js';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
 import { formatReportMarkdown } from '../utils/report-md.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
@@ -102,26 +103,45 @@ export async function analysisCommand(options: {
 
   // Step 1.5: 加载历史数据 + 本地指标已在 TechnicalAgent 中处理
 
+  /** 包裹 agent 调用，超时 or 异常时使用回落值 */
+  async function analyzeWithFallback<T>(
+    label: string,
+    fn: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      const reason = err instanceof AgentTimeoutError ? '超时' : (err instanceof Error ? err.message : String(err));
+      console.warn(`  ⚠️ ${label} 分析异常 (${reason})，降级为中性估值`);
+      return fallback;
+    }
+  }
+
   // Step 2: 四维度分析（两批：技术+基本面 并行，情绪+基金 并行）
   console.log('  🧠 Step 2: 四维度分析...');
   console.log('  📊 分析中: 技术面 & 基本面...');
   const [technical, fundamental] = await Promise.all([
-    new TechnicalAgent().analyze(marketData),
-    new FundamentalAgent().analyze(marketData),
+    analyzeWithFallback('技术面', () => new TechnicalAgent().analyze(marketData), TECHNICAL_FALLBACK),
+    analyzeWithFallback('基本面', () => new FundamentalAgent().analyze(marketData), FUNDAMENTAL_FALLBACK),
   ]);
   console.log(`  ✅ 技术面 ${technical.score}/100 | 基本面 ${fundamental.score}/100`);
 
   console.log('  📊 分析中: 情绪面 & 基金面...');
   const [sentiment, fund] = await Promise.all([
-    new SentimentAgent().analyze(marketData),
-    new FundAgent().analyze(marketData),
+    analyzeWithFallback('情绪面', () => new SentimentAgent().analyze(marketData), SENTIMENT_FALLBACK),
+    analyzeWithFallback('基金面', () => new FundAgent().analyze(marketData), FUND_FALLBACK),
   ]);
   console.log(`  ✅ 情绪面 ${sentiment.score}/100 | 基金面 ${fund.valuation.level}`);
 
-  // Step 2.5: 强制反驳
+  // Step 2.5: 强制反驳（rebuttal.ts 内部已有 try/catch + fallback，此处再加一层保险）
   console.log('  ⚔️ Step 2.5: 强制反驳...');
   const rebuttalAgent = new RebuttalAgent();
-  const rebuttal = await rebuttalAgent.rebut(technical, fundamental, sentiment, fund, marketData);
+  const rebuttal = await analyzeWithFallback(
+    '反驳',
+    () => rebuttalAgent.rebut(technical, fundamental, sentiment, fund, marketData),
+    REBUTTAL_FALLBACK,
+  );
   let scoreBreakdown = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
   console.log(`  ✅ 反驳完成 (看空力度: ${rebuttal.bearScore}/100, 强度: ${rebuttal.rebuttalStrength})`);
   console.log(`  📈 ${formatScoreBreakdownOneLine(scoreBreakdown)}`);
@@ -190,19 +210,42 @@ export async function analysisCommand(options: {
     causalChains,
   };
 
-  // Step 3: 综合编排
+  // Step 3: 综合编排（orchestrator.ts 内部已有 try/catch + fallback，此处再加一层）
   console.log('  🎯 Step 3: 综合编排...');
   const orchestrator = new OrchestratorAgent();
-  const report = await orchestrator.orchestrate(
-    marketData,
-    technical,
-    fundamental,
-    sentiment,
-    fund,
-    rebuttal,
-    options.horizon,
-    orchestrateOpts,
-  );
+  let report: GoldAnalysisReport;
+  try {
+    report = await orchestrator.orchestrate(
+      marketData,
+      technical,
+      fundamental,
+      sentiment,
+      fund,
+      rebuttal,
+      options.horizon,
+      orchestrateOpts,
+    );
+  } catch (err) {
+    const reason = err instanceof AgentTimeoutError ? '超时' : (err instanceof Error ? err.message : String(err));
+    console.warn(`  ⚠️ 编排 Agent 异常 (${reason})，使用回落报告`);
+    // 构建最小可用报告
+    const fallbackScore = Math.round((technical.score + fundamental.score + sentiment.score) / 3);
+    report = {
+      timestamp: new Date().toISOString(),
+      marketData,
+      technical,
+      fundamental,
+      sentiment,
+      fund,
+      rebuttal,
+      tailRisks: rebuttal.tailRisks ?? [],
+      overall: {
+        score: fallbackScore,
+        direction: 'neutral',
+        scenarios: {} as any,
+      } as any,
+    } as GoldAnalysisReport;
+  }
   scoreBreakdown = extendBreakdownWithCalibration(
     scoreBreakdown,
     report.overall.calibration,

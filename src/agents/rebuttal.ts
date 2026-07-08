@@ -1,11 +1,23 @@
 // 强制反驳 Agent — 独立 session，系统性寻找看空论据
 
-import { BaseAgent } from './base.js';
+import { BaseAgent, AgentTimeoutError } from './base.js';
 import { getConfig } from '../utils/config.js';
 import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
 import type { RebuttalAnalysis, TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, RebuttalStrength, BearPoint, BullVulnerability } from '../types/analysis.js';
 import type { FundAnalysis } from '../types/fund.js';
 import type { MarketData } from '../types/market.js';
+
+/** 反驳分析回落：中性，不做评分修正 */
+export const REBUTTAL_FALLBACK: RebuttalAnalysis = {
+  bullScore: 50,
+  bearScore: 50,
+  rebuttalStrength: 'weak',
+  bearPoints: [{ point: '反驳分析超时，无法生成看空论据', evidence: 'N/A', probability: 0, impact: '无影响' }],
+  bullVulnerabilities: [],
+  netEffect: 'unchanged',
+  adjustedScore: undefined,
+  tailRisks: [],
+};
 
 /** 格式化涨跌幅，缺失值显示 N/A */
 function fmtPct(v: number | null | undefined): string {
@@ -44,6 +56,22 @@ export class RebuttalAgent extends BaseAgent {
 
   /** 生成反驳分析 */
   async rebut(
+    technical: TechnicalAnalysis,
+    fundamental: FundamentalAnalysis,
+    sentiment: SentimentAnalysis,
+    fund: FundAnalysis,
+    marketData: MarketData,
+  ): Promise<RebuttalAnalysis> {
+    try {
+      return await this.doRebuttal(technical, fundamental, sentiment, fund, marketData);
+    } catch (err) {
+      console.warn(`  ⚠️ 反驳 Agent 异常:`, err instanceof AgentTimeoutError ? '超时' : (err instanceof Error ? err.message : err));
+      return REBUTTAL_FALLBACK;
+    }
+  }
+
+  /** 实际反驳逻辑 */
+  private async doRebuttal(
     technical: TechnicalAnalysis,
     fundamental: FundamentalAnalysis,
     sentiment: SentimentAnalysis,

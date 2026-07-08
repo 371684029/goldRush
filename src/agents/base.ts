@@ -9,17 +9,29 @@ export interface AgentOptions {
   name: string;
   model: ModelConfig;
   systemPrompt?: string;
+  /** LLM 调用超时毫秒（默认 300s），单次 prompt() 超过此值抛出 AgentTimeoutError */
+  timeoutMs?: number;
+}
+
+/** Agent 超时专用错误，便于调用方区分超时 vs 其他异常 */
+export class AgentTimeoutError extends Error {
+  constructor(agentName: string, timeoutMs: number) {
+    super(`Agent ${agentName}: LLM call timed out after ${Math.round(timeoutMs / 1000)}s`);
+    this.name = 'AgentTimeoutError';
+  }
 }
 
 export class BaseAgent {
   protected name: string;
   protected model: ModelConfig;
   protected systemPrompt: string;
+  protected timeoutMs: number;
 
   constructor(options: AgentOptions) {
     this.name = options.name;
     this.model = options.model;
     this.systemPrompt = options.systemPrompt ?? '';
+    this.timeoutMs = options.timeoutMs ?? 300_000;
   }
 
    /** 调用 opencode run CLI 并返回 LLM 输出文本 */
@@ -31,13 +43,22 @@ export class BaseAgent {
     // 使用完整路径避免 cron 环境下 PATH 缺失
     const cmd = `/usr/local/bin/opencode run -m ${modelArg} 2>/dev/null`;
 
-    const result = execSync(cmd, {
-      input: fullPrompt,
-      timeout: 300_000, // 5 分钟
-      maxBuffer: 1024 * 1024 * 10, // 10MB
-      shell: '/bin/bash',
-      encoding: 'utf-8' as const,
-    });
+    let result: string;
+    try {
+      result = execSync(cmd, {
+        input: fullPrompt,
+        timeout: this.timeoutMs,
+        maxBuffer: 1024 * 1024 * 10, // 10MB
+        shell: '/bin/bash',
+        encoding: 'utf-8' as const,
+      });
+    } catch (err: unknown) {
+      // 将 Node.js child_process 超时错误转为 AgentTimeoutError
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+        throw new AgentTimeoutError(this.name, this.timeoutMs);
+      }
+      throw err;
+    }
 
     const output = result || '';
 
