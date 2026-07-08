@@ -28,7 +28,8 @@ export class BaseAgent {
     const modelArg = `${this.model.providerID}/${this.model.modelID}`;
 
     // 通过 stdin 传 prompt，避免 shell 转义和命令行长度限制
-    const cmd = `opencode run -m ${modelArg} 2>/dev/null`;
+    // 使用完整路径避免 cron 环境下 PATH 缺失
+    const cmd = `/usr/local/bin/opencode run -m ${modelArg} 2>/dev/null`;
 
     const result = execSync(cmd, {
       input: fullPrompt,

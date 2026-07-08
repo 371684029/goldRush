@@ -4,6 +4,9 @@
 
 set -e
 
+# cron 环境 PATH 有限，补充 opencode CLI 路径
+export PATH="/usr/local/bin:/usr/sbin:$PATH"
+
 cd "$(dirname "$0")/.."
 PROJECT_DIR="$(pwd)"
 
