@@ -4,17 +4,12 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { marked } = require('marked');
 
 const PORT = parseInt(process.env.PORT || '80', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const DOCS_DIR = path.resolve(__dirname, 'docs');
 const DOCS_ROOT = DOCS_DIR + path.sep;
-
-/** Markdown 渲染后 DOMPurify 选项（允许 Tearsheet 内嵌 SVG） */
-const MARKDOWN_PURIFY_OPTS = {
-  USE_PROFILES: { html: true, svg: true },
-  ADD_ATTR: ['xmlns', 'viewBox', 'role', 'aria-label'],
-};
 
 // ===== 评分提取 =====
 
@@ -808,14 +803,21 @@ function renderArticle(mdFilename, rawMarkdown) {
     ${tocItems.map(t => `<a href="#${t.id}" class="toc-link">${esc(t.title)}</a>`).join('')}
   </nav>` : '';
 
+  // 服务端渲染 Markdown → HTML，给 h2 加锚点
+  let contentHtml = marked.parse(displayMd, { breaks: true, gfm: true });
+  let h2Idx = 0;
+  contentHtml = contentHtml.replace(/<h2>/g, () => {
+    const id = tocItems[h2Idx]?.id;
+    h2Idx++;
+    return id ? `<h2 id="${id}">` : '<h2>';
+  });
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${esc(dateLabel)} — GoldRush 分析报告</title>
-  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -1142,40 +1144,15 @@ function renderArticle(mdFilename, rawMarkdown) {
         <h1>详细分析</h1>
         <div class="meta">${esc(dateLabel)} · 以下内容为完整研报</div>
       </div>
-      <div id="content"></div>
+      <div id="content">${contentHtml}</div>
       <div class="footer-meta">
         报告由 GoldRush 自动生成 · 仅供研究参考，不构成投资建议
       </div>
     </div>
   </div>
 
-  <script>
-    const md = \`${mdContent(displayMd)}\`;
-    const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
-    const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
-
-    let html = DOMPurify.sanitize(marked.parse(md), MARKDOWN_PURIFY_OPTS);
-    // 为 h2 注入锚点 id，便于目录跳转
-    const wrap = document.createElement('div');
-    wrap.innerHTML = html;
-    const h2s = wrap.querySelectorAll('h2');
-    h2s.forEach((h2, i) => {
-      if (tocIds[i]) h2.id = tocIds[i];
-    });
-    document.getElementById('content').innerHTML = wrap.innerHTML;
-  </script>
 </body>
 </html>`;
-}
-
-/** 将 Markdown 原始内容转为安全的 JS 模板字符串（嵌入到 `` 反引号模板中） */
-function mdContent(raw) {
-  return raw
-    .replace(/\\/g, '\\\\')
-    .replace(/\`/g, '\\`')
-    .replace(/\$/g, '\\$')
-    // 防止 </script> 注入关闭脚本标签
-    .replace(/<\/script>/gi, '<\\/script>');
 }
 
 // ===== HTTP 服务 =====
