@@ -114,6 +114,186 @@ function extractSimilarDays(md) {
   return rows.length ? rows.slice(0, 3) : null;
 }
 
+/** 提取数据置信度 */
+function extractDataConfidence(md) {
+  const m = md.match(/数据置信度[：:]\s*(\d+)%/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** 提取校准参考 */
+function extractCalibration(md) {
+  const m = md.match(/校准参考[：:]\s*([^\n]+)/);
+  if (!m) return null;
+  const text = m[1];
+  const range = text.match(/([\d]+-[\d]+)\s*区间/);
+  const acc = text.match(/(?:准确率|涨概率)\s*(\d+)%/);
+  const bias = text.match(/（([^，)]+)/);
+  const sample = text.match(/样本\s*(\d+)/);
+  return {
+    range: range ? range[1] : '',
+    accuracy: acc ? parseInt(acc[1], 10) : null,
+    bias: bias ? bias[1].trim() : '',
+    sample: sample ? parseInt(sample[1], 10) : null,
+    raw: text.trim(),
+  };
+}
+
+/** 提取三情景（概率 + 操作建议摘要） */
+function extractScenarios(md) {
+  const names = [
+    { key: '基准', cls: 'base', icon: '⚖️' },
+    { key: '上行', cls: 'up', icon: '📈' },
+    { key: '下行', cls: 'down', icon: '📉' },
+  ];
+  const out = [];
+  for (const { key, cls, icon } of names) {
+    const row = md.match(new RegExp(`\\| ${key} \\| ([^|]+) \\| ([^|]+) \\| ([^|]+)`));
+    if (!row) continue;
+    const prob = parseInt(String(row[1]).replace(/[^\d]/g, ''), 10);
+    out.push({
+      name: key,
+      cls,
+      icon,
+      probability: Number.isFinite(prob) ? prob : 0,
+      summary: row[2].trim().slice(0, 100),
+      action: row[3].trim().slice(0, 72),
+    });
+  }
+  return out.length === 3 ? out : null;
+}
+
+/** 提取定投/操作策略（人话） */
+function extractStrategies(md) {
+  const shortOp = md.match(/## ⏱️ 短期策略[\s\S]*?- 操作：([^\n]+)/);
+  const midDca = md.match(/定投建议：(\w+)/);
+  const midPos = md.match(/仓位调整：(\w+)/);
+  const dcaMap = { continue: '继续定投', increase: '加码定投', pause: '暂停定投' };
+  const posMap = { add: '加仓', reduce: '减仓', hold: '维持仓位' };
+  return {
+    short: shortOp ? shortOp[1].trim().slice(0, 100) : '',
+    dca: midDca ? (dcaMap[midDca[1]] || midDca[1]) : '',
+    position: midPos ? (posMap[midPos[1]] || midPos[1]) : '',
+  };
+}
+
+/** 分数 → 通俗结论（支付宝定投视角） */
+function plainAdvice(score, direction) {
+  const s = score ?? 50;
+  const d = direction || (s >= 58 ? 'bullish' : s <= 42 ? 'bearish' : 'neutral');
+  if (d === 'bullish' || s >= 58) {
+    return {
+      label: '偏多',
+      headline: '黄金短期动能偏强',
+      action: '维持定投；急跌可小幅加码，高位不追',
+      color: '#22c55e',
+      bg: '#22c55e18',
+      emoji: '📈',
+    };
+  }
+  if (d === 'bearish' || s <= 42) {
+    return {
+      label: '偏空',
+      headline: '下行风险大于反弹空间',
+      action: '放慢定投或暂停加码，等评分/价格回落',
+      color: '#ef4444',
+      bg: '#ef444418',
+      emoji: '📉',
+    };
+  }
+  return {
+    label: '中性',
+    headline: '震荡整理，方向未明',
+    action: '维持基础定投，按日历执行、少择时',
+    color: '#f59e0b',
+    bg: '#f59e0b18',
+    emoji: '➡️',
+  };
+}
+
+/** 历史相似日汇总（说服力） */
+function summarizeSimilarDays(similar) {
+  if (!similar || !similar.length) return null;
+  const rets = similar.map(s => parseFloat(String(s.ret).replace(/[^\d.-]/g, ''))).filter(n => Number.isFinite(n));
+  if (!rets.length) return null;
+  const up = rets.filter(r => r > 0).length;
+  const avg = rets.reduce((a, b) => a + b, 0) / rets.length;
+  return {
+    up,
+    total: rets.length,
+    upRate: Math.round((up / rets.length) * 100),
+    avgReturn: Math.round(avg * 100) / 100,
+  };
+}
+
+/** 渲染 Markdown 前去掉已在仪表盘展示的冗余块 */
+function stripDashboardDuplicates(md) {
+  return md
+    .replace(/## 📊 评分构成[\s\S]*?(?=\n## )/, '')
+    .replace(/## 综合研判[\s\S]*?(?=\n## )/, '');
+}
+
+/** 预测仪表盘（文章页顶部） */
+function renderPredictionDashboard(meta) {
+  const { scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro } = meta;
+  if (!scoreInfo) return '';
+
+  const score = scoreInfo.score;
+  const confPct = confidence != null ? confidence : '—';
+  const confClass = confidence >= 70 ? 'good' : confidence >= 50 ? 'mid' : 'low';
+
+  const trustParts = [];
+  if (calibration?.accuracy != null) {
+    trustParts.push(`同分段历史 5 日上涨概率 <strong>${calibration.accuracy}%</strong>（${esc(calibration.range)}，样本 ${calibration.sample ?? '—'}）`);
+  }
+  if (similarSummary) {
+    trustParts.push(`历史相似日 ${similarSummary.total} 次中 ${similarSummary.upRate}% 上涨，平均 ${similarSummary.avgReturn >= 0 ? '+' : ''}${similarSummary.avgReturn}%`);
+  }
+  const trustHtml = trustParts.length
+    ? `<div class="pred-trust"><span class="pred-trust-icon">🎯</span><div class="pred-trust-body">${trustParts.join('<br>')}</div></div>`
+    : `<div class="pred-trust pred-trust-muted"><span class="pred-trust-icon">ℹ️</span><div>样本积累中，结论供参考，请结合定投纪律</div></div>`;
+
+  const scenarioHtml = scenarios ? scenarios.map(s => `
+    <div class="sc-card sc-${s.cls}">
+      <div class="sc-head"><span>${s.icon} ${esc(s.name)}</span><span class="sc-pct">${s.probability}%</span></div>
+      <div class="sc-bar"><div class="sc-fill" style="width:${s.probability}%"></div></div>
+      <div class="sc-action">${esc(s.action || s.summary)}</div>
+    </div>`).join('') : '';
+
+  return `<section class="pred-dashboard" aria-label="预测结论">
+    <div class="pred-hero" style="--pred-color:${advice.color};--pred-bg:${advice.bg}">
+      <div class="pred-score-col">
+        <div class="pred-score-num">${score}</div>
+        <div class="pred-score-sub">综合分 / 100</div>
+        <div class="pred-score-meter"><div class="pred-score-fill" style="width:${score}%;background:${advice.color}"></div></div>
+      </div>
+      <div class="pred-verdict-col">
+        <div class="pred-emoji">${advice.emoji}</div>
+        <h2 class="pred-headline">${esc(advice.headline)}</h2>
+        <p class="pred-tag">${advice.label} · ${scoreInfo.direction === 'bullish' ? '短期动能偏强' : scoreInfo.direction === 'bearish' ? '需防回调' : '方向待确认'}</p>
+        <div class="pred-action-box">
+          <span class="pred-action-label">💡 定投建议</span>
+          <p class="pred-action-text">${esc(advice.action)}</p>
+        </div>
+        ${macro ? `<p class="pred-macro">🌐 ${esc(macro.label)} — ${esc(macro.description.slice(0, 48))}${macro.description.length > 48 ? '…' : ''}</p>` : ''}
+      </div>
+      <div class="pred-meta-col">
+        <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
+        ${strategies.dca ? `<div class="pred-pill">中长期 ${esc(strategies.dca)}</div>` : ''}
+        ${strategies.position ? `<div class="pred-pill">仓位 ${esc(strategies.position)}</div>` : ''}
+      </div>
+    </div>
+    ${trustHtml}
+    ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">未来 1–2 周怎么走？（三情景概率）</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
+    ${strategies.short ? `<div class="pred-short-tip"><span>⏱️ 短期</span>${esc(strategies.short)}</div>` : ''}
+  </section>`;
+}
+
+/** 列表页通俗结论条 */
+function renderCardVerdict(score, direction) {
+  const a = plainAdvice(score, direction);
+  return `<span class="verdict-chip" style="color:${a.color};background:${a.bg};border-color:${a.color}33">${a.emoji} ${a.label} · ${esc(a.action.slice(0, 28))}${a.action.length > 28 ? '…' : ''}</span>`;
+}
+
 /** 渲染评分构成瀑布（侧边栏） */
 function renderScoreWaterfall(breakdown) {
   if (!breakdown || !breakdown.length) return '';
@@ -163,6 +343,12 @@ function getFileInfos(files) {
       macro: extractMacroRegime(md),
       judge: extractJudgeVerdict(md),
       similar: extractSimilarDays(md),
+      similarSummary: summarizeSimilarDays(extractSimilarDays(md)),
+      calibration: extractCalibration(md),
+      confidence: extractDataConfidence(md),
+      scenarios: extractScenarios(md),
+      strategies: extractStrategies(md),
+      advice: scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null,
     };
   });
 }
@@ -172,9 +358,9 @@ function getFileInfos(files) {
 function scoreBadge(score) {
   if (score == null) return '';
   let color, label;
-  if (score >= 75) { color = '#22c55e'; label = '看多'; }
+  if (score >= 75) { color = '#22c55e'; label = '偏多'; }
   else if (score >= 55) { color = '#f59e0b'; label = '中性'; }
-  else { color = '#ef4444'; label = '看空'; }
+  else { color = '#ef4444'; label = '偏空'; }
   return `<span class="s-badge" style="background:${color}22;color:${color};border-color:${color}44">${score}<span class="s-label">${label}</span></span>`;
 }
 
@@ -185,14 +371,14 @@ function renderIndex(fileInfos) {
   const rest = fileInfos.slice(1);
 
   const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'}">
-    <div class="hero-badge">最新</div>
+    <div class="hero-badge">最新研判</div>
     <div class="hero-left">${scoreBadge(latest.score)}</div>
     <div class="hero-body">
       <div class="hero-date">${esc(latest.dateLabel)}</div>
-      <div class="hero-title">黄金投资日报</div>
-      ${latest.glance?.macroLabel ? `<div class="hero-macro">🌐 ${esc(latest.glance.macroLabel)}</div>` : ''}
-      ${latest.glance?.baseAction ? `<div class="hero-action">基准 ${esc(latest.glance.baseProb)} · ${esc(latest.glance.baseAction)}</div>` : ''}
-      ${latest.glance?.shortAction ? `<div class="hero-short">短期：${esc(latest.glance.shortAction)}</div>` : ''}
+      ${latest.advice ? `<div class="hero-verdict">${latest.advice.emoji} ${esc(latest.advice.headline)}</div>` : '<div class="hero-title">黄金投资日报</div>'}
+      ${latest.advice ? `<div class="hero-action">💡 ${esc(latest.advice.action)}</div>` : ''}
+      ${latest.scenarios ? `<div class="hero-scenarios">${latest.scenarios.map(s => `<span class="sc-mini sc-${s.cls}">${s.icon}${s.probability}%</span>`).join('')}</div>` : ''}
+      ${latest.similarSummary ? `<div class="hero-proof">📜 相似日 ${latest.similarSummary.upRate}% 上涨 · 均 ${latest.similarSummary.avgReturn >= 0 ? '+' : ''}${latest.similarSummary.avgReturn}%</div>` : ''}
       <div class="hero-dims">${latest.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 2)} ${d.score}</span>`).join('')}</div>
     </div>
     <div class="hero-arrow">→</div>
@@ -200,11 +386,12 @@ function renderIndex(fileInfos) {
 
   const cardRows = rest.map(info => {
     const mtimeStr = info.mtime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? ''))}">
+    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? '') + ' ' + (info.advice?.label ?? ''))}">
       <div class="rc-score">${scoreBadge(info.score)}</div>
       <div class="rc-body">
         <div class="rc-date">${info.dateLabel}</div>
-        ${info.glance?.baseAction ? `<div class="rc-snippet">${esc(info.glance.baseAction.slice(0, 56))}${info.glance.baseAction.length > 56 ? '…' : ''}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`}
+        ${info.advice ? `<div class="rc-verdict">${renderCardVerdict(info.score, info.direction)}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`}
+        ${info.scenarios ? `<div class="rc-scenarios">${info.scenarios.map(s => `<span class="sc-mini sc-${s.cls}">${s.probability}%</span>`).join('')}</div>` : ''}
         <div class="rc-meta">${info.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 1)}${d.score}</span>`).join('')} · ${mtimeStr}</div>
       </div>
     </a>`;
@@ -232,6 +419,23 @@ function renderIndex(fileInfos) {
       min-height: 100vh;
     }
     .container { max-width: 960px; margin: 0 auto; padding: 32px 20px 48px; }
+
+    .hero-verdict { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; margin: 6px 0 8px; line-height: 1.4; }
+    .hero-scenarios { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+    .hero-proof { font-size: 0.78rem; color: #86efac; margin-bottom: 6px; }
+    .sc-mini {
+      font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      background: #1a2332; border: 1px solid #334155;
+    }
+    .sc-mini.sc-base { color: #94a3b8; }
+    .sc-mini.sc-up { color: #22c55e; border-color: #22c55e33; }
+    .sc-mini.sc-down { color: #ef4444; border-color: #ef444433; }
+    .rc-verdict { margin: 6px 0; }
+    .rc-scenarios { display: flex; gap: 6px; margin: 4px 0; }
+    .verdict-chip {
+      display: inline-block; font-size: 0.78rem; padding: 4px 10px;
+      border-radius: 8px; border: 1px solid; line-height: 1.35;
+    }
 
     /* Hero — 最新报告 */
     .hero-card {
@@ -459,15 +663,15 @@ function renderIndex(fileInfos) {
   <div class="container">
     <header>
       <h1>🥇 GoldRush</h1>
-      <p class="subtitle">黄金投资研究 · 每日分析报告</p>
+      <p class="subtitle">一眼看懂 · 分数 · 概率 · 定投建议</p>
     </header>
 
     <div class="stats">
-      <div class="stat-card"><div class="num gold">${total}</div><div class="label">报告总数</div></div>
+      <div class="stat-card"><div class="num gold">${total}</div><div class="label">报告</div></div>
       ${total > 0 ? `
-      <div class="stat-card"><div class="num green">${bullish}</div><div class="label">看多</div></div>
+      <div class="stat-card"><div class="num green">${bullish}</div><div class="label">偏多</div></div>
       <div class="stat-card"><div class="num yellow">${neutral}</div><div class="label">中性</div></div>
-      <div class="stat-card"><div class="num red">${bearish}</div><div class="label">看空</div></div>
+      <div class="stat-card"><div class="num red">${bearish}</div><div class="label">偏空</div></div>
       <div class="stat-card"><div class="num gold">${avgScore}</div><div class="label">均分</div></div>
       ` : ''}
     </div>
@@ -539,6 +743,18 @@ function renderArticle(mdFilename, rawMarkdown) {
   const macro = extractMacroRegime(rawMarkdown);
   const judge = extractJudgeVerdict(rawMarkdown);
   const similar = extractSimilarDays(rawMarkdown);
+  const similarSummary = summarizeSimilarDays(similar);
+  const calibration = extractCalibration(rawMarkdown);
+  const confidence = extractDataConfidence(rawMarkdown);
+  const scenarios = extractScenarios(rawMarkdown);
+  const strategies = extractStrategies(rawMarkdown);
+  const advice = scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null;
+
+  const dashboardHtml = renderPredictionDashboard({
+    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro,
+  });
+
+  const displayMd = stripDashboardDuplicates(rawMarkdown);
 
   const scoreHtml = scoreInfo ? `<div class="score-gauge">
     <div class="sg-circle" style="background:conic-gradient(${scoreInfo.score >= 75 ? '#22c55e' : scoreInfo.score >= 55 ? '#f59e0b' : '#ef4444'} ${scoreInfo.score * 3.6}deg, #1e293b ${scoreInfo.score * 3.6}deg)">
@@ -575,22 +791,13 @@ function renderArticle(mdFilename, rawMarkdown) {
   </div>` : '';
 
   const similarHtml = similar && similar.length ? `<div class="sidebar-block">
-    <div class="sb-title">历史相似日</div>
-    ${similar.map(s => `<div class="sim-row"><span>${esc(s.date)}</span><span>${esc(s.similarity)}</span><span>${esc(s.ret)}</span></div>`).join('')}
+    <div class="sb-title">历史佐证</div>
+    <div class="sim-summary">${similarSummary ? `相似日 ${similarSummary.upRate}% 上涨 · 均 ${similarSummary.avgReturn >= 0 ? '+' : ''}${similarSummary.avgReturn}%` : ''}</div>
+    ${similar.map(s => `<div class="sim-row"><span>${esc(s.date)}</span><span>${esc(s.similarity)}</span><span class="${parseFloat(s.ret) >= 0 ? 'up' : 'down'}">${esc(s.ret)}</span></div>`).join('')}
   </div>` : '';
 
-  const glanceHtml = (glance.baseAction || glance.shortAction || macro) ? `<div class="glance-bar">
-    ${scoreInfo ? `<div class="gb-item gb-score">${scoreInfo.score}<span>/100</span></div>` : ''}
-    ${scoreInfo ? `<div class="gb-item gb-dir">${scoreInfo.direction === 'bullish' ? '📈 偏多' : scoreInfo.direction === 'bearish' ? '📉 偏空' : '➡️ 中性'}</div>` : ''}
-    ${macro ? `<div class="gb-item"><span class="gb-label">宏观</span>${esc(macro.label)}</div>` : ''}
-    ${glance.baseAction ? `<div class="gb-item"><span class="gb-label">基准 ${esc(glance.baseProb)}</span>${esc(glance.baseAction)}</div>` : ''}
-    ${glance.shortAction ? `<div class="gb-item"><span class="gb-label">短期</span>${esc(glance.shortAction)}</div>` : ''}
-    ${judge ? `<div class="gb-item gb-judge"><span class="gb-label">裁决</span>${esc(judge.slice(0, 120))}${judge.length > 120 ? '…' : ''}</div>` : ''}
-  </div>` : '';
-
-  // 从 h2 提取目录
   const tocItems = [];
-  for (const m of rawMarkdown.matchAll(/^## (.+)$/gm)) {
+  for (const m of displayMd.matchAll(/^## (.+)$/gm)) {
     const title = m[1].trim();
     if (title.startsWith('📊 评分构成')) continue;
     const id = 'sec-' + tocItems.length;
@@ -742,7 +949,71 @@ function renderArticle(mdFilename, rawMarkdown) {
     }
     .toc-link:hover { background: #1e293b; color: #f59e0b; }
 
-    /* Quick glance bar */
+    .sim-row span.up { color: #22c55e; font-weight: 600; }
+    .sim-row span.down { color: #ef4444; font-weight: 600; }
+    .sim-summary { font-size: 0.72rem; color: #86efac; margin-bottom: 8px; line-height: 1.4; }
+
+    /* 预测仪表盘 */
+    .pred-dashboard { margin-bottom: 32px; }
+    .pred-hero {
+      display: grid; grid-template-columns: 120px 1fr auto; gap: 24px; align-items: start;
+      background: linear-gradient(135deg, #1a2744 0%, #1e293b 100%);
+      border: 1px solid #334155; border-left: 4px solid var(--pred-color, #f59e0b);
+      border-radius: 16px; padding: 24px 28px;
+    }
+    .pred-score-num { font-size: 3rem; font-weight: 800; color: #f8fafc; line-height: 1; }
+    .pred-score-sub { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
+    .pred-score-meter { height: 6px; background: #0f172a; border-radius: 3px; margin-top: 10px; overflow: hidden; }
+    .pred-score-fill { height: 100%; border-radius: 3px; transition: width 0.6s; }
+    .pred-emoji { font-size: 1.5rem; margin-bottom: 4px; }
+    .pred-headline { font-size: 1.35rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px; line-height: 1.35; }
+    .pred-tag { font-size: 0.82rem; color: var(--pred-color); font-weight: 600; margin-bottom: 12px; }
+    .pred-action-box {
+      background: var(--pred-bg); border: 1px solid var(--pred-color);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .pred-action-label { font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .pred-action-text { font-size: 0.95rem; color: #e2e8f0; margin-top: 4px; font-weight: 500; line-height: 1.45; }
+    .pred-macro { font-size: 0.78rem; color: #93c5fd; margin-top: 10px; }
+    .pred-meta-col { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    .pred-pill {
+      font-size: 0.72rem; padding: 5px 10px; border-radius: 20px;
+      background: #0f172a; border: 1px solid #334155; color: #94a3b8; white-space: nowrap;
+    }
+    .pred-pill.conf-good { color: #86efac; border-color: #22c55e44; }
+    .pred-pill.conf-mid { color: #fcd34d; border-color: #f59e0b44; }
+    .pred-pill.conf-low { color: #fca5a5; border-color: #ef444444; }
+    .pred-trust {
+      display: flex; gap: 12px; align-items: flex-start;
+      margin-top: 14px; padding: 14px 18px;
+      background: #131c2e; border: 1px solid #1e293b; border-radius: 12px;
+      font-size: 0.85rem; color: #cbd5e1; line-height: 1.5;
+    }
+    .pred-trust-muted { color: #64748b; }
+    .pred-trust-icon { font-size: 1.2rem; flex-shrink: 0; }
+    .pred-trust strong { color: #fbbf24; }
+    .pred-section-title { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 12px; font-weight: 600; }
+    .sc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .sc-card {
+      background: #131c2e; border: 1px solid #1e293b; border-radius: 12px; padding: 14px 16px;
+    }
+    .sc-card.sc-up { border-top: 3px solid #22c55e; }
+    .sc-card.sc-down { border-top: 3px solid #ef4444; }
+    .sc-card.sc-base { border-top: 3px solid #64748b; }
+    .sc-head { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; color: #e2e8f0; margin-bottom: 8px; }
+    .sc-pct { font-size: 1.1rem; color: #fbbf24; }
+    .sc-bar { height: 5px; background: #0f172a; border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
+    .sc-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 3px; }
+    .sc-card.sc-up .sc-fill { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .sc-card.sc-down .sc-fill { background: linear-gradient(90deg, #dc2626, #ef4444); }
+    .sc-action { font-size: 0.78rem; color: #94a3b8; line-height: 1.45; }
+    .pred-short-tip {
+      margin-top: 14px; padding: 12px 16px; background: #1a2332; border-radius: 10px;
+      font-size: 0.85rem; color: #94a3b8; line-height: 1.5; border-left: 3px solid #f59e0b;
+    }
+    .pred-short-tip span { color: #fbbf24; font-weight: 600; margin-right: 8px; }
+
+    /* Quick glance bar (legacy) */
     .glance-bar {
       display: flex; flex-wrap: wrap; gap: 12px 20px;
       background: linear-gradient(135deg, #1a2744, #1e293b);
@@ -833,6 +1104,9 @@ function renderArticle(mdFilename, rawMarkdown) {
     }
 
     @media (max-width: 860px) {
+      .pred-hero { grid-template-columns: 1fr; }
+      .pred-meta-col { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+      .sc-grid { grid-template-columns: 1fr; }
       .article-layout { flex-direction: column; padding: 24px 16px 60px; }
       .sidebar { position: static; width: 100%; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
       .score-gauge { margin-bottom: 0; }
@@ -863,10 +1137,10 @@ function renderArticle(mdFilename, rawMarkdown) {
       ${tocHtml}
     </aside>
     <div class="article-main">
-      ${glanceHtml}
+      ${dashboardHtml}
       <div class="article-header">
-        <h1>${esc(dateLabel)} 黄金投资日报</h1>
-        <div class="meta">${esc(mdFilename)}</div>
+        <h1>详细分析</h1>
+        <div class="meta">${esc(dateLabel)} · 以下内容为完整研报</div>
       </div>
       <div id="content"></div>
       <div class="footer-meta">
@@ -876,7 +1150,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   </div>
 
   <script>
-    const md = \`${esc(mdContent(rawMarkdown))}\`;
+    const md = \`${esc(mdContent(displayMd))}\`;
     const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
     const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
 
