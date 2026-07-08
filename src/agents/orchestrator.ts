@@ -8,6 +8,8 @@ import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score.js';
+import { applyCalibrationScore, directionFromScore } from '../utils/calibration-adjust.js';
+import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, ShortTermStrategy, MidTermStrategy, Scenarios, RebuttalAnalysis, GoldAnalysisReport } from '../types/analysis.js';
 import type { MarketData } from '../types/market.js';
@@ -112,8 +114,17 @@ export class OrchestratorAgent extends BaseAgent {
     // 注入校准数据
     let calibrationText = '校准数据不足（样本<5），暂无统计参考';
     if (calibrationContext && calibrationContext.historicalAccuracy !== null) {
-      calibrationText = `评分${calibrationContext.scoreRange}区间：历史${calibrationContext.sampleSize}次分析，实际涨概率${Math.round(calibrationContext.historicalAccuracy * 100)}%，系统偏差：${calibrationContext.systematicBias}`;
+      const pct5 = Math.round(calibrationContext.historicalAccuracy * 100);
+      const pct20 = calibrationContext.historicalAccuracy20d != null
+        ? Math.round(calibrationContext.historicalAccuracy20d * 100)
+        : null;
+      const t20Part = pct20 != null ? `，20日涨概率${pct20}%` : '';
+      calibrationText = `评分${calibrationContext.scoreRange}区间：历史${calibrationContext.sampleSize}次分析，5日涨概率${pct5}%${t20Part}，系统偏差：${calibrationContext.systematicBias}`;
     }
+
+    const calAdjust = applyCalibrationScore(initialScore, calibrationContext);
+    const displayScore = calAdjust.calibratedScore;
+    const displayDirection = directionFromScore(displayScore);
 
     const schema = {
       type: 'object',
@@ -199,8 +210,8 @@ ${calibrationText}
 ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视角' : '双视角（短期+中长期）'}
 
 ## 评分规则（重要）
-你的综合评分(overall.score)必须以修正后的评分为准。本报告的修正评分为 ${initialScore}。
-你的任务不是重新打分，而是基于 ${initialScore} 分撰写配套的综合研判、情景分析和双轨策略。
+你的综合评分(overall.score)必须以修正后的评分为准。本报告反驳修正分为 ${initialScore}，校准后参考分为 ${displayScore}（${calAdjust.reason}）。
+你的任务不是重新打分，而是基于 ${displayScore} 分撰写配套的综合研判、情景分析和双轨策略。
 评分只能在小范围内微调（±3分），且必须在报告中说明调整理由。`;
 
     const result = await this.structuredPrompt<{
@@ -229,12 +240,20 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       tailRisks: rebuttal.tailRisks ?? [],
       overall: {
         ...result.overall,
-        score: enforceOverallScore(result.overall.score, initialScore),
-        calibration: calibrationContext ?? {
-          scoreRange: 'N/A',
-          historicalAccuracy: null,
-          systematicBias: '样本不足',
-          sampleSize: 0,
+        score: enforceOverallScore(result.overall.score, displayScore),
+        direction: displayDirection,
+        calibration: {
+          ...(calibrationContext ?? {
+            scoreRange: 'N/A',
+            historicalAccuracy: null,
+            historicalAccuracy20d: null,
+            systematicBias: '样本不足',
+            sampleSize: 0,
+          }),
+          rawScore: calAdjust.rawScore,
+          calibrationOffset: calAdjust.offset,
+          calibrationApplied: calAdjust.applied,
+          calibrationReason: calAdjust.reason,
         },
       },
     };
@@ -290,19 +309,27 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       // fedStance 从基本面提取
       const fedRaw = f?.fedStance ?? '';
 
+      const reportDate = report.timestamp.slice(0, 10);
+      const recentReports = reportsRepo.getRecent(30);
+      const consecutiveDays = countConsecutiveDirectionDays(
+        recentReports.map(r => ({ date: r.date, direction: r.direction })),
+        report.overall.direction,
+        reportDate,
+      );
+
       featuresRepo.insert({
-        date: report.timestamp.slice(0, 10),
+        date: reportDate,
         reportId,
         dollarDirection: d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'flat',
         dollarMagnitude: Math.abs(d),
         tipsDirection: tipsDir,
         tipsMagnitude: tipsChange != null ? Math.abs(tipsChange) : 0,
-        goldDeviation: 0,
+        goldDeviation,
         vixLevel,
         fedStance: fedRaw.includes('鸽') ? 'dovish' : fedRaw.includes('鹰') ? 'hawkish' : 'neutral',
         geopoliticalRisk: s?.geopoliticalRisk?.includes('高') ? 'high' : s?.geopoliticalRisk?.includes('低') ? 'low' : 'medium',
         momentumDirection: report.overall.direction === 'bullish' ? 'up' : report.overall.direction === 'bearish' ? 'down' : 'flat',
-        consecutiveDays: 0,
+        consecutiveDays,
       });
     } catch (err) {
       console.error('保存报告失败:', err);

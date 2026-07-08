@@ -79,7 +79,15 @@ export function formatReportMarkdown(
   lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
   const cal = overall?.calibration;
   if (cal && cal.historicalAccuracy != null) {
-    lines.push(`- 校准参考：${na(cal.scoreRange)} 区间历史准确率 ${Math.round(cal.historicalAccuracy * 100)}%（${na(cal.systematicBias)}，样本 ${na(cal.sampleSize)}）`);
+    const pct5 = Math.round(cal.historicalAccuracy * 100);
+    const pct20 = cal.historicalAccuracy20d != null ? Math.round(cal.historicalAccuracy20d * 100) : null;
+    const t20 = pct20 != null ? `，20日涨概率 ${pct20}%` : '';
+    lines.push(`- 校准参考：${na(cal.scoreRange)} 区间 5日涨概率 ${pct5}%${t20}（${na(cal.systematicBias)}，样本 ${na(cal.sampleSize)}）`);
+    if (cal.calibrationApplied && cal.calibrationOffset != null && cal.calibrationOffset !== 0) {
+      lines.push(`- 数值校准：反驳后 ${cal.rawScore} 分 → 偏移 ${cal.calibrationOffset > 0 ? '+' : ''}${cal.calibrationOffset} → **展示 ${overall?.score} 分**（${na(cal.calibrationReason)}）`);
+    }
+  } else if (cal?.systematicBias === '样本不足') {
+    lines.push(`- 校准参考：样本不足（${na(cal.sampleSize)} 条），分数未经统计修正`);
   }
   lines.push('');
 

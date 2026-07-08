@@ -10,6 +10,11 @@ import type { MarketData } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
 import { forwardFillCloses } from '../utils/price-series.js';
 import { aggregateWeeklyCloses } from '../utils/weekly-series.js';
+import {
+  blendTechnicalScore,
+  buildTechnicalRuleInput,
+  computeTechnicalRuleScore,
+} from '../utils/technical-rule-score.js';
 
 /** 安全读取 MarketData 嵌套字段 */
 function safeVal<T>(fn: () => T, fallback: T): T {
@@ -183,10 +188,18 @@ ${weeklyContext}`;
 
     const techPromptData = `## 市场数据\n美元指数: ${dollarIdx} (${dollarChange > 0 ? '+' : ''}${dollarChange}%)\n10Y美债: ${safeStr(() => data.usTreasury.yield10y.value, '%')}\nTIPS: ${safeStr(() => data.usTreasury.tips?.value, '%')}\n\n请进行技术面双视角分析。`;
 
-    return this.structuredPrompt<TechnicalAnalysis>(
+    const llmResult = await this.structuredPrompt<TechnicalAnalysis>(
       `${indicatorContext}\n\n${techPromptData}`,
       schema,
     );
+
+    const ruleInput = buildTechnicalRuleInput(history);
+    if (ruleInput) {
+      const ruleScore = computeTechnicalRuleScore(ruleInput);
+      return { ...llmResult, score: blendTechnicalScore(ruleScore, llmResult.score) };
+    }
+
+    return llmResult;
   }
 }
 

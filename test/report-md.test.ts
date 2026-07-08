@@ -32,7 +32,7 @@ function buildReport(): GoldAnalysisReport {
         upside: { probability: 25, description: '突破新高', goldPrice: '>2450', action: '加仓', confidence: 'low', trigger: '降息预期升温' },
         downside: { probability: 20, description: '回调', goldPrice: '<2250', action: '暂停定投', confidence: 'low', trigger: '美元走强' },
       },
-      calibration: { scoreRange: '60-70', historicalAccuracy: 0.58, systematicBias: '偏乐观', sampleSize: 12 },
+      calibration: { scoreRange: '60-70', historicalAccuracy: 0.58, historicalAccuracy20d: 0.52, systematicBias: '偏乐观', sampleSize: 12 },
       shortTerm: { horizon: 'short-term', action: '逢低参与', entryZone: '2300-2320', target: '2400', stopLoss: '2270', recommendedProduct: '518880', riskWarning: '注意美元' },
       midTerm: { horizon: 'medium-term', investAdvice: { dipInvest: 'continue', positionAdjust: 'hold', recommendedFund: '000216' }, keyLevels: { supportZone: '2200-2250', resistanceZone: '2450-2500' }, riskWarning: '估值偏高需控仓' },
     },

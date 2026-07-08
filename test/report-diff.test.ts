@@ -21,7 +21,7 @@ function miniReport(score: number, tech: number, probBase: number): GoldAnalysis
         upside: { probability: 20, description: '', goldPrice: '', action: '', confidence: 'low', trigger: '' },
         downside: { probability: 20, description: '', goldPrice: '', action: '', confidence: 'low', trigger: '' },
       },
-      calibration: { scoreRange: '', historicalAccuracy: null, systematicBias: '', sampleSize: 0 },
+      calibration: { scoreRange: '', historicalAccuracy: null, historicalAccuracy20d: null, systematicBias: '', sampleSize: 0 },
       shortTerm: {} as never,
       midTerm: {} as never,
     },

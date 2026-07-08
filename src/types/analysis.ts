@@ -124,9 +124,19 @@ export interface Scenarios {
 /** 校准上下文 */
 export interface CalibrationContext {
   scoreRange: string;
+  /** T=5 交易日后续上涨概率 */
   historicalAccuracy: number | null;
+  /** T=20 交易日后续上涨概率（定投视角） */
+  historicalAccuracy20d: number | null;
   systematicBias: string;
   sampleSize: number;
+  /** 反驳修正后、校准偏移前的分数 */
+  rawScore?: number;
+  /** 校准偏移量（负=下调） */
+  calibrationOffset?: number;
+  /** 是否已应用数值校准 */
+  calibrationApplied?: boolean;
+  calibrationReason?: string;
 }
 
 /** 短期策略 */

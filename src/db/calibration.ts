@@ -182,45 +182,57 @@ export class CalibrationRepo {
     };
   }
 
-  /** 获取校准上下文（注入综合编排prompt） */
-  getCalibrationContext(score: number): { scoreRange: string; historicalAccuracy: number | null; systematicBias: string; sampleSize: number } | null {
+  /** 获取校准上下文（注入综合编排 prompt + 数值修正） */
+  getCalibrationContext(score: number): import('../types/analysis.js').CalibrationContext | null {
     const matchedRange = scoreBucketRange(score);
     if (!matchedRange) return null;
 
-    // 查最近90天的该区间报告
     const reports = this.reports.getByScoreRange(matchedRange.min, matchedRange.max, 90);
     if (reports.length < 5) {
       return {
         scoreRange: matchedRange.range,
         historicalAccuracy: null,
+        historicalAccuracy20d: null,
         systematicBias: '样本不足',
         sampleSize: reports.length,
       };
     }
 
-    // 简化计算：用历史数据估算该区间准确率
-    let upCount = 0;
-    let valid = 0;
-    for (const report of reports) {
-      const currentPrice = this.prices.getByDate(report.date);
-      const futurePrices = this.prices.getAfter(report.date, 5);
-      const futurePrice = futurePrices.length >= 5 ? futurePrices[4] : null;
-      if (!currentPrice?.londonClose || !futurePrice?.londonClose) continue;
-      if ((futurePrice.londonClose - currentPrice.londonClose) / currentPrice.londonClose > 0) upCount++;
-      valid++;
-    }
+    const acc5 = this.computeUpProbability(reports, 5);
+    const acc20 = this.computeUpProbability(reports, 20);
 
-    const accuracy = valid > 0 ? upCount / valid : null;
     const midScore = (matchedRange.min + matchedRange.max) / 2;
-    const bias = accuracy !== null
-      ? (midScore > accuracy * 100 ? '偏乐观' : midScore < accuracy * 100 ? '偏保守' : '校准良好')
+    const bias = acc5.accuracy !== null
+      ? (midScore > acc5.accuracy * 100 ? '偏乐观' : midScore < acc5.accuracy * 100 ? '偏保守' : '校准良好')
       : '未知';
 
     return {
       scoreRange: matchedRange.range,
-      historicalAccuracy: accuracy,
+      historicalAccuracy: acc5.accuracy,
+      historicalAccuracy20d: acc20.accuracy,
       systematicBias: bias,
-      sampleSize: valid,
+      sampleSize: acc5.valid,
+    };
+  }
+
+  /** 计算区间内报告在 T 日后的上涨概率 */
+  private computeUpProbability(
+    reports: AnalysisReportRow[],
+    T: number,
+  ): { accuracy: number | null; valid: number } {
+    let upCount = 0;
+    let valid = 0;
+    for (const report of reports) {
+      const currentPrice = this.prices.getByDate(report.date);
+      const futurePrices = this.prices.getAfter(report.date, T);
+      const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : null;
+      if (!currentPrice?.londonClose || !futurePrice?.londonClose) continue;
+      if (futurePrice.londonClose > currentPrice.londonClose) upCount++;
+      valid++;
+    }
+    return {
+      accuracy: valid > 0 ? upCount / valid : null,
+      valid,
     };
   }
 }

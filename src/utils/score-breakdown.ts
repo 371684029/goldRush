@@ -1,6 +1,6 @@
 // 综合评分构成 — 展示「哪里加几分、哪里减几分」
 
-import type { RebuttalAnalysis, RebuttalStrength, TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis } from '../types/analysis.js';
+import type { RebuttalAnalysis, RebuttalStrength, TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, CalibrationContext } from '../types/analysis.js';
 import { computeRebuttalAdjustment } from './rebuttal-score.js';
 
 const DIM_WEIGHT = 1 / 3;
@@ -22,6 +22,12 @@ export interface ScoreBreakdown {
     multiplier: number;
     rawAdjustment: number;
     roundedDelta: number;
+  };
+  calibration?: {
+    rawScore: number;
+    offset: number;
+    calibratedScore: number;
+    reason: string;
   };
   finalScore: number;
 }
@@ -67,6 +73,28 @@ export function buildScoreBreakdown(
   };
 }
 
+/** 将编排后的校准偏移并入评分链路（展示用） */
+export function extendBreakdownWithCalibration(
+  bd: ScoreBreakdown,
+  cal: Pick<CalibrationContext, 'rawScore' | 'calibrationOffset' | 'calibrationApplied' | 'calibrationReason'> | undefined,
+  displayScore: number,
+): ScoreBreakdown {
+  if (!cal?.calibrationApplied || cal.calibrationOffset == null || cal.calibrationOffset === 0) {
+    return { ...bd, finalScore: displayScore };
+  }
+  const rawScore = cal.rawScore ?? bd.finalScore;
+  return {
+    ...bd,
+    calibration: {
+      rawScore,
+      offset: cal.calibrationOffset,
+      calibratedScore: displayScore,
+      reason: cal.calibrationReason ?? '历史校准修正',
+    },
+    finalScore: displayScore,
+  };
+}
+
 function fmtDelta(n: number, decimals = 1): string {
   const rounded = Math.round(n * 10 ** decimals) / 10 ** decimals;
   if (rounded > 0) return `+${rounded}`;
@@ -102,6 +130,13 @@ export function formatScoreBreakdownConsole(bd: ScoreBreakdown, indent = '  '): 
       + `  →  ${fmtDelta(r.rawAdjustment)}  →  取整 ${fmtDelta(r.roundedDelta)}`,
   );
 
+  if (bd.calibration) {
+    const c = bd.calibration;
+    const offStr = c.offset > 0 ? `+${c.offset}` : String(c.offset);
+    lines.push(`${indent}  历史校准  ${c.reason}`);
+    lines.push(`${indent}    反驳后 ${c.rawScore}  →  偏移 ${offStr}  →  **${c.calibratedScore}**`);
+  }
+
   lines.push(`${indent}${bar}`);
   lines.push(`${indent}  最终综合分`.padEnd(indent.length + 14) + `= ${bd.finalScore}`);
   lines.push(`${indent}  （基金面估值不参与均分，仅作策略参考）`);
@@ -128,9 +163,15 @@ export function formatScoreBreakdownMarkdown(bd: ScoreBreakdown): string[] {
   const r = bd.rebuttal;
   const multPct = Math.round(r.multiplier * 100);
   lines.push(
-    `| 反驳修正 | bear=${r.bearScore}，${STRENGTH_LABEL[r.strength]}×${multPct}% | **${fmtDelta(r.roundedDelta)}** | **${bd.finalScore}** |`,
+    `| 反驳修正 | bear=${r.bearScore}，${STRENGTH_LABEL[r.strength]}×${multPct}% | **${fmtDelta(r.roundedDelta)}** | **${bd.calibration ? bd.calibration.rawScore : bd.finalScore}** |`,
   );
-  lines.push(`| **最终综合分** | 看空隐含 ${r.bearishImpliedScore}，公式 (${r.bearishImpliedScore}−${bd.initialScore})×${r.multiplier} | | **${bd.finalScore}** |`);
+  if (bd.calibration) {
+    const offStr = bd.calibration.offset > 0 ? `+${bd.calibration.offset}` : String(bd.calibration.offset);
+    lines.push(
+      `| 历史校准 | ${bd.calibration.reason} | **${offStr}** | **${bd.calibration.calibratedScore}** |`,
+    );
+  }
+  lines.push(`| **最终综合分** | ${bd.calibration ? '校准后展示分' : `看空隐含 ${r.bearishImpliedScore}，公式 (${r.bearishImpliedScore}−${bd.initialScore})×${r.multiplier}`} | | **${bd.finalScore}** |`);
   lines.push('');
   lines.push('> 基金面估值不参与均分，仅作策略参考。');
   lines.push('');

@@ -9,7 +9,7 @@ import { header, separator, directionMark, scoreBar, changeColor, riskLevel, val
 import { formatReportMarkdown } from '../utils/report-md.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
 import { getConfig } from '../utils/config.js';
-import { buildScoreBreakdown, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
+import { buildScoreBreakdown, extendBreakdownWithCalibration, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
 import { detectMacroRegime, formatMacroRegimeLine } from '../utils/macro-regime.js';
 import { buildJudgeVerdict, formatJudgeVerdictConsole } from '../utils/judge-verdict.js';
 import { buildLongTermOutlook, formatLongTermOutlookConsole } from '../utils/long-term-outlook.js';
@@ -21,6 +21,7 @@ import { ReportsRepo } from '../db/reports.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
+import { priceSeriesProxyNote, spotProxyDeviationWarning } from '../utils/price-semantics.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
@@ -70,6 +71,12 @@ export async function analysisCommand(options: {
   const validation = await validator.validate(marketData);
   console.log(`  ✅ 数据采集完成 (置信度: ${validation.overallConfidence}%)`);
 
+  const priceWarnings: string[] = [...validation.warnings];
+  priceWarnings.push(priceSeriesProxyNote());
+  const latestProxy = priceRepo.getRecent(1)[0]?.londonClose ?? null;
+  const spotWarn = spotProxyDeviationWarning(marketData.london?.price?.value, latestProxy);
+  if (spotWarn) priceWarnings.push(spotWarn);
+
   // Step 1.5: 加载历史数据 + 本地指标已在 TechnicalAgent 中处理
 
   // Step 2: 四维度分析（两批：技术+基本面 并行，情绪+基金 并行）
@@ -92,7 +99,7 @@ export async function analysisCommand(options: {
   console.log('  ⚔️ Step 2.5: 强制反驳...');
   const rebuttalAgent = new RebuttalAgent();
   const rebuttal = await rebuttalAgent.rebut(technical, fundamental, sentiment, fund, marketData);
-  const scoreBreakdown = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
+  let scoreBreakdown = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
   console.log(`  ✅ 反驳完成 (看空力度: ${rebuttal.bearScore}/100, 强度: ${rebuttal.rebuttalStrength})`);
   console.log(`  📈 ${formatScoreBreakdownOneLine(scoreBreakdown)}`);
   console.log(formatScoreBreakdownConsole(scoreBreakdown));
@@ -101,9 +108,14 @@ export async function analysisCommand(options: {
   console.log('  🎯 Step 3: 综合编排...');
   const orchestrator = new OrchestratorAgent();
   const report = await orchestrator.orchestrate(marketData, technical, fundamental, sentiment, fund, rebuttal, options.horizon);
+  scoreBreakdown = extendBreakdownWithCalibration(
+    scoreBreakdown,
+    report.overall.calibration,
+    report.overall.score,
+  );
   report.dataQuality = {
     overallConfidence: validation.overallConfidence,
-    warnings: validation.warnings,
+    warnings: priceWarnings,
   };
   console.log('  ✅ 编排完成');
 
@@ -255,8 +267,15 @@ function printReport(
   }
 
   // 校准上下文
-  if (overall?.calibration?.historicalAccuracy !== null && overall?.calibration?.historicalAccuracy !== undefined) {
-    console.log(`  📊 校准参考: ${overall.calibration.scoreRange}区间历史准确率${Math.round(overall.calibration.historicalAccuracy * 100)}% (${overall.calibration.systematicBias})`);
+  if (overall?.calibration?.historicalAccuracy != null) {
+    const cal = overall.calibration;
+    const pct5 = Math.round(cal.historicalAccuracy! * 100);
+    const pct20 = cal.historicalAccuracy20d != null ? Math.round(cal.historicalAccuracy20d * 100) : null;
+    const t20 = pct20 != null ? `，20日${pct20}%` : '';
+    console.log(`  📊 校准参考: ${cal.scoreRange}区间 5日涨概率${pct5}%${t20} (${cal.systematicBias})`);
+    if (cal.calibrationApplied && cal.calibrationOffset != null && cal.calibrationOffset !== 0) {
+      console.log(`  📐 数值校准: 反驳后${cal.rawScore}分 → 偏移${cal.calibrationOffset > 0 ? '+' : ''}${cal.calibrationOffset} → 展示${overall.score}分`);
+    }
   }
 
   // 情景分析
