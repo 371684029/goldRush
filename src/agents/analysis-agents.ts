@@ -15,6 +15,11 @@ import {
   buildTechnicalRuleInput,
   computeTechnicalRuleScore,
 } from '../utils/technical-rule-score.js';
+import {
+  parseFundamentalAnalysis,
+  parseSentimentAnalysis,
+  parseTechnicalAnalysis,
+} from '../schemas/dimension.js';
 
 // === 超时 / 失败时的中性回落值 ===
 
@@ -252,10 +257,11 @@ ${weeklyContext}`;
 
     const techPromptData = `## 市场数据\n美元指数: ${dollarIdx} (${dollarChange > 0 ? '+' : ''}${dollarChange}%)\n10Y美债: ${safeStr(() => data.usTreasury.yield10y.value, '%')}\nTIPS: ${safeStr(() => data.usTreasury.tips?.value, '%')}\n\n请进行技术面双视角分析。`;
 
-    const llmResult = await this.structuredPrompt<TechnicalAnalysis>(
+    const llmRaw = await this.structuredPrompt<TechnicalAnalysis>(
       `${indicatorContext}\n\n${techPromptData}`,
       schema,
     );
+    const llmResult = parseTechnicalAnalysis(llmRaw);
 
     const ruleInput = buildTechnicalRuleInput(history);
     if (ruleInput) {
@@ -324,10 +330,11 @@ export class FundamentalAgent extends BaseAgent {
       required: ['score', 'direction', 'keyPoints', 'counterPoints', 'summary', 'sources', 'dollarIndexEffect', 'interestRateEffect', 'inflationEffect', 'fedStance'],
     };
 
-    return this.structuredPrompt<FundamentalAnalysis>(
+    const raw = await this.structuredPrompt<FundamentalAnalysis>(
       `## 市场数据\n伦敦金: $${londonPrice} (${londonChange > 0 ? '+' : ''}${londonChange}%)\n美元指数: ${dollarIdx} (${dollarChange > 0 ? '+' : ''}${dollarChange}%)\n10Y美债: ${safeStr(() => data.usTreasury.yield10y.value, '%')}\nTIPS: ${safeStr(() => data.usTreasury.tips?.value, '%')}\n\n请进行基本面分析。`,
       schema,
     );
+    return parseFundamentalAnalysis(raw);
   }
 }
 
@@ -391,10 +398,11 @@ export class SentimentAgent extends BaseAgent {
       required: ['score', 'direction', 'keyPoints', 'counterPoints', 'summary', 'sources', 'centralBanks', 'cftcPosition', 'vix', 'geopoliticalRisk', 'etfFlows'],
     };
 
-    return this.structuredPrompt<SentimentAnalysis>(
+    const raw = await this.structuredPrompt<SentimentAnalysis>(
       `## 市场数据\n伦敦金: $${londonPrice}\nETF(518880): ${etfNav} (${etfChange > 0 ? '+' : ''}${etfChange}%)\n美元指数: ${dollarIdx}\n\n请进行情绪面分析。`,
       schema,
     );
+    return parseSentimentAnalysis(raw);
   }
 }
 

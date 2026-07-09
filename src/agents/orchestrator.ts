@@ -9,6 +9,8 @@ import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score.js';
 import { applyCalibrationScore, directionFromScore } from '../utils/calibration-adjust.js';
+import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
+import { scoreBucketRange } from '../utils/score-buckets.js';
 import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import { applyScenarioProbabilities, formatScenarioProbLine, type ScenarioProbabilities } from '../utils/scenario-probability.js';
@@ -110,12 +112,37 @@ export class OrchestratorAgent extends BaseAgent {
     // 获取校准上下文
     const db = getDb();
     const calibrationRepo = new CalibrationRepo(db);
-    const initialScore = resolveOverallScore(rebuttal, {
+    const dimScores = {
       technical: technical.score,
       fundamental: fundamental.score,
       sentiment: sentiment.score,
-    });
-    const calibrationContext = calibrationRepo.getCalibrationContext(initialScore, opts.macroRegime.tag);
+    };
+    let workingRebuttal = rebuttal;
+    let initialScore = resolveOverallScore(workingRebuttal, dimScores);
+    let calibrationContext = calibrationRepo.getCalibrationContext(initialScore, opts.macroRegime.tag);
+
+    // 评分乘数在线校准：用历史偏差微调反驳强度乘数后重算 adjustedScore
+    if (calibrationContext && (calibrationContext.sampleSize ?? 0) >= 5) {
+      const dimAvg = Math.round((dimScores.technical + dimScores.fundamental + dimScores.sentiment) / 3);
+      const bucket = scoreBucketRange(dimAvg);
+      const midScore = bucket ? (bucket.min + bucket.max) / 2 : dimAvg;
+      const acc = calibrationContext.historicalAccuracy;
+      const calibrationError = acc != null ? Math.abs(midScore - acc * 100) : null;
+      const { adjustedScore, netEffect } = adjustScoreWithRebuttal(
+        dimAvg,
+        workingRebuttal.bearScore,
+        workingRebuttal.rebuttalStrength,
+        {
+          systematicBias: calibrationContext.systematicBias,
+          calibrationError,
+          sampleSize: calibrationContext.sampleSize,
+        },
+      );
+      workingRebuttal = { ...workingRebuttal, adjustedScore, netEffect };
+      initialScore = resolveOverallScore(workingRebuttal, dimScores);
+      calibrationContext = calibrationRepo.getCalibrationContext(initialScore, opts.macroRegime.tag)
+        ?? calibrationContext;
+    }
 
     // 自动回填
     try {
@@ -226,10 +253,10 @@ ${sentiment.keyPoints.join('; ')}
 估值: ${fund.valuation?.level ?? 'N/A'}, 溢价折价: ${fund.premiumDiscount?.current ?? 'N/A'}%
 
 ## 反驳分析
-看空力度: ${rebuttal.bearScore}/100 (强度: ${rebuttal.rebuttalStrength})
-看空论据: ${(rebuttal.bearPoints ?? []).map(p => p.point).join('; ')}
-看多漏洞: ${(rebuttal.bullVulnerabilities ?? []).map(v => v.vulnerability).join('; ')}
-评分修正: ${rebuttal.adjustedScore ?? '未修正'} (${rebuttal.netEffect})
+看空力度: ${workingRebuttal.bearScore}/100 (强度: ${workingRebuttal.rebuttalStrength})
+看空论据: ${(workingRebuttal.bearPoints ?? []).map(p => p.point).join('; ')}
+看多漏洞: ${(workingRebuttal.bullVulnerabilities ?? []).map(v => v.vulnerability).join('; ')}
+评分修正: ${workingRebuttal.adjustedScore ?? '未修正'} (${workingRebuttal.netEffect})
 
 ## 历史校准
 ${calibrationText}
@@ -284,8 +311,8 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         fundamental,
         sentiment,
         fund,
-        rebuttal,
-        tailRisks: rebuttal.tailRisks ?? [],
+        rebuttal: workingRebuttal,
+        tailRisks: workingRebuttal.tailRisks ?? [],
         overall: {
           score: fallbackScore,
           direction: 'neutral' as Direction,
@@ -323,8 +350,8 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       fundamental,
       sentiment,
       fund,
-      rebuttal,
-      tailRisks: rebuttal.tailRisks ?? [],
+      rebuttal: workingRebuttal,
+      tailRisks: workingRebuttal.tailRisks ?? [],
       overall: {
         ...orchestratorResult.overall,
         scenarios,

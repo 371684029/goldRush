@@ -3,6 +3,7 @@
 import { BaseAgent, AgentTimeoutError } from './base.js';
 import { getConfig } from '../utils/config.js';
 import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
+import { parseRebuttalRaw } from '../schemas/dimension.js';
 import type { RebuttalAnalysis, TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, RebuttalStrength, BearPoint, BullVulnerability } from '../types/analysis.js';
 import type { FundAnalysis } from '../types/fund.js';
 import type { MarketData } from '../types/market.js';
@@ -124,20 +125,25 @@ export class RebuttalAgent extends BaseAgent {
 
 请系统性地反驳上述分析，找出所有被忽略的风险。`;
 
-    const rawResult = await this.structuredPrompt<{
+    const llmRaw = await this.structuredPrompt<{
       bearScore: number;
       bearPoints: BearPoint[];
       bullVulnerabilities: BullVulnerability[];
       rebuttalStrength: RebuttalStrength;
       tailRisks: import('../types/analysis.js').TailRisk[];
     }>(analysisContext, schema);
+    const rawResult = parseRebuttalRaw(llmRaw);
 
     // 用客观指标判定反驳强度（不依赖 LLM 自述）
     const rebuttalStrength = determineRebuttalStrength(rawResult);
 
-    // 计算评分修正
+    // 计算评分修正（乘数可按历史校准偏差微调）
     const initialScore = Math.round((technical.score + fundamental.score + sentiment.score) / 3);
-    const { adjustedScore, netEffect } = adjustScoreWithRebuttal(initialScore, rawResult.bearScore, rebuttalStrength);
+    const { adjustedScore, netEffect } = adjustScoreWithRebuttal(
+      initialScore,
+      rawResult.bearScore,
+      rebuttalStrength,
+    );
 
     return {
       bullScore: 100 - rawResult.bearScore,
