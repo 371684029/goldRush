@@ -358,6 +358,8 @@ npm run lint
 | 文档 | 内容 |
 |------|------|
 | [PLAN.md](./PLAN.md) | 完整项目规划（架构、数据流、类型定义、prompt 设计） |
+| [FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划（CFTC/ETF/央行 数据采集+分析） |
+| [OPTIMIZATION.md](./docs/OPTIMIZATION.md) | **优化路线图**（数据真实性、覆盖度、实时性、可靠性、交互） |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录（为什么这样设计） |
 | [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率改进规范（回测校准、强制反驳、情景分析） |
 | [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论深度分析（6种范式对比） |

@@ -31,6 +31,8 @@ export function featureToVector(f: ScenarioFeature): number[] {
     stanceNum(f.fedStance),
     geoNum(f.geopoliticalRisk),
     dirNum(f.momentumDirection),
+    f.cftcPercentile != null ? (f.cftcPercentile - 50) / 50 : 0,
+    f.flowScore != null ? (f.flowScore - 50) / 50 : 0,
   ];
 }
 

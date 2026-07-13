@@ -213,6 +213,91 @@ function plainAdvice(score, direction) {
   };
 }
 
+/** 30秒快速阅读卡片 — 首屏决策三件套 */
+function renderQuickRead(meta) {
+  const { scoreInfo, advice, dims, calibration } = meta;
+  if (!scoreInfo) return '';
+
+  const dimLabels = dims && dims.length
+    ? dims.map(d => {
+        const label = d.score >= 60 ? '偏多' : d.score <= 40 ? '偏空' : '中性';
+        return `${d.name}${label}`;
+      }).join(' · ')
+    : '';
+
+  const warnText = (calibration?.sample != null && calibration.sample < 20)
+    ? `⚠️ 校准样本仅${calibration.sample}次，仅供参考`
+    : '';
+
+  return `<div class="quick-read-card" style="border-left-color:${advice.color}">
+    <div class="qr-left">
+      <div class="qr-score">${scoreInfo.score}<span class="qr-total">/100</span></div>
+      <div class="qr-dir">${advice.emoji} ${advice.label}</div>
+    </div>
+    <div class="qr-body">
+      <div class="qr-action">💡 ${esc(advice.action)}</div>
+      ${dimLabels ? `<div class="qr-why">${esc(dimLabels)}</div>` : ''}
+      ${warnText ? `<div class="qr-warn">${esc(warnText)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+/** 主力流向专用仪表盘 */
+function renderFlowDashboard(rawMarkdown) {
+  // Extract scores from flow markdown structure
+  const scoreMatch = rawMarkdown.match(/综合评分[：:]\s*\*{0,2}(\d+)\/100\*{0,2}/);
+  const score = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
+
+  // Extract section scores: CFTC, ETF, 央行, GLD
+  const sections = [];
+  const sectionNames = [
+    { key: 'CFTC', label: 'CFTC' },
+    { key: 'GLD', label: '黄金ETF' },
+    { key: '央行', label: '央行' },
+    { key: '背离', label: '背离信号' },
+  ];
+
+  for (const { key, label } of sectionNames) {
+    const pattern = new RegExp(`## .*${key}[\\s\\S]*?(\\d+)/100`);
+    const m = rawMarkdown.match(pattern);
+    if (m) {
+      const val = parseInt(m[1], 10);
+      let cls = 'neutral';
+      if (val >= 60) cls = 'bullish';
+      else if (val <= 40) cls = 'bearish';
+      sections.push({ label, score: val, cls });
+    }
+  }
+
+  if (!score) return '';
+
+  const scoreColor = score >= 75 ? '#22c55e' : score >= 55 ? '#f59e0b' : '#ef4444';
+
+  const gaugeHtml = sections.length
+    ? sections.map(s => `
+      <div class="flow-gauge ${s.cls}">
+        <div class="fg-label">${esc(s.label)}</div>
+        <div class="fg-score">${s.score}</div>
+        <div class="fg-bar"><div class="fg-fill" style="width:${s.score}%"></div></div>
+      </div>`).join('')
+    : '';
+
+  // Check for divergence warnings
+  const divergenceMatch = rawMarkdown.match(/背离[^\n]*?(\d+)[^\n]*?(\d+)/);
+  const hasDivergence = divergenceMatch && Math.abs(parseInt(divergenceMatch[1], 10) - parseInt(divergenceMatch[2], 10)) > 15;
+
+  return `<div class="flow-dashboard">
+    <div class="flow-hero">
+      <div class="flow-main-score">
+        <div class="flow-big-num" style="color:${scoreColor}">${score}</div>
+        <div class="flow-big-label">主力综合评分</div>
+      </div>
+      <div class="flow-gauges">${gaugeHtml}</div>
+    </div>
+    ${hasDivergence ? '<div class="flow-warning">⚠️ 检测到背离信号，请结合多维度综合判断</div>' : ''}
+  </div>`;
+}
+
 /** 历史相似日汇总（说服力） */
 function summarizeSimilarDays(similar) {
   if (!similar || !similar.length) return null;
@@ -262,6 +347,31 @@ function renderPredictionDashboard(meta) {
   const confPct = confidence != null ? confidence : '—';
   const confClass = confidence >= 70 ? 'good' : confidence >= 50 ? 'mid' : 'low';
 
+  // Calibration badge: show stats directly
+  const calibParts = [];
+  if (calibration?.sample != null) calibParts.push(`同分段 ${calibration.sample} 次`);
+  if (calibration?.accuracy != null) calibParts.push(`5日涨 ${calibration.accuracy}%`);
+  if (calibration?.bias) calibParts.push(`${calibration.bias}`);
+  const calibBadge = calibParts.length
+    ? `<div class="pred-calib-badge">${calibParts.join(' · ')}</div>`
+    : '';
+  // Macro inside calibration area if present
+  const macroLine = macro ? `<div class="pred-macro-inline">🌐 ${esc(macro.label)}</div>` : '';
+
+  // Action box — most prominent after score
+  const actionBoxHtml = `
+    <div class="pred-action-box" style="background:${advice.bg};border-color:${advice.color}">
+      <div class="pred-action-label">💡 定投建议</div>
+      <div class="pred-action-text">${esc(advice.action)}</div>
+    </div>`;
+
+  const scenarioHtml = scenarios ? scenarios.map(s => `
+    <div class="sc-card sc-${s.cls}">
+      <div class="sc-head"><span>${s.icon} ${esc(s.name)}</span><span class="sc-pct">${s.probability}%</span></div>
+      <div class="sc-bar"><div class="sc-fill" style="width:${s.probability}%"></div></div>
+      <div class="sc-action">${esc(s.action || '')}</div>
+    </div>`).join('') : '';
+
   const trustParts = [];
   if (calibration?.accuracy != null) {
     trustParts.push(`同分段历史 5 日上涨概率 <strong>${calibration.accuracy}%</strong>（${esc(calibration.range)}，样本 ${calibration.sample ?? '—'}）`);
@@ -273,39 +383,27 @@ function renderPredictionDashboard(meta) {
     ? trustParts.join('<br>')
     : '样本积累中，结论供参考，请结合定投纪律';
 
-  const scenarioHtml = scenarios ? scenarios.map(s => `
-    <div class="sc-card sc-${s.cls}">
-      <div class="sc-head"><span>${s.icon} ${esc(s.name)}</span><span class="sc-pct">${s.probability}%</span></div>
-      <div class="sc-bar"><div class="sc-fill" style="width:${s.probability}%"></div></div>
-      <div class="sc-action">${esc(s.action || '')}</div>
-      ${s.summary && s.summary !== s.action ? `<details class="sc-desc"><summary>情景说明</summary><p>${esc(s.summary)}</p></details>` : ''}
-    </div>`).join('') : '';
-
   return `<section class="pred-dashboard" aria-label="预测结论">
     ${renderSampleWarn(calibration)}
-    <div class="pred-hero" style="--pred-color:${advice.color};--pred-bg:${advice.bg}">
+    <div class="pred-hero" style="--pred-color:${advice.color}">
       <div class="pred-score-col">
         <div class="pred-score-num">${score}</div>
         <div class="pred-score-sub">综合分 / 100</div>
         <div class="pred-score-meter"><div class="pred-score-fill" style="width:${score}%;background:${advice.color}"></div></div>
+        ${calibBadge}
+        ${macroLine}
       </div>
       <div class="pred-verdict-col">
-        <div class="pred-emoji">${advice.emoji}</div>
-        <h2 class="pred-headline">${esc(advice.headline)}</h2>
-        <p class="pred-tag">${advice.label} · ${scoreInfo.direction === 'bullish' ? '短期动能偏强' : scoreInfo.direction === 'bearish' ? '需防回调' : '方向待确认'}</p>
-        <div class="pred-action-box">
-          <span class="pred-action-label">💡 定投建议</span>
-          <p class="pred-action-text">${esc(advice.action)}</p>
+        <div class="pred-dir-tag">${advice.emoji} ${advice.label}</div>
+        ${actionBoxHtml}
+        <div class="pred-pills">
+          <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
+          ${strategies.dca ? `<div class="pred-pill">${esc(strategies.dca)}</div>` : ''}
+          ${strategies.position ? `<div class="pred-pill">${esc(strategies.position)}</div>` : ''}
         </div>
-        ${macro ? `<p class="pred-macro">🌐 ${esc(macro.label)} — ${esc(macro.description.slice(0, 48))}${macro.description.length > 48 ? '…' : ''}</p>` : ''}
-      </div>
-      <div class="pred-meta-col">
-        <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
-        ${strategies.dca ? `<div class="pred-pill">中长期 ${esc(strategies.dca)}</div>` : ''}
-        ${strategies.position ? `<div class="pred-pill">仓位 ${esc(strategies.position)}</div>` : ''}
       </div>
     </div>
-    ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">未来 1–2 周怎么走？（三情景概率）</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
+    ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">三情景概率</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
     <details class="pred-secondary">
       <summary>历史佐证与短期提示</summary>
       <div class="pred-trust"><span class="pred-trust-icon">🎯</span><div class="pred-trust-body">${trustInner}</div></div>
@@ -349,6 +447,7 @@ function esc(s) {
 
 /** 报告类型：analysis / digest / other */
 function classifyDoc(filename) {
+  if (filename.includes('flow')) return 'flow';
   if (filename.includes('digest')) return 'digest';
   if (filename.includes('analysis')) return 'analysis';
   if (filename.includes('calibration')) return 'calibration';
@@ -836,6 +935,14 @@ function renderArticle(mdFilename, rawMarkdown) {
   const strategies = extractStrategies(rawMarkdown);
   const advice = scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null;
 
+  // Quick-read card only for analysis
+  const quickReadHtml = kind === 'analysis' ? renderQuickRead({
+    scoreInfo, advice, dims, calibration,
+  }) : '';
+
+  // Flow reports get specialized dashboard
+  const flowDashboardHtml = kind === 'flow' ? renderFlowDashboard(rawMarkdown) : '';
+
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
     scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro,
   }) : '';
@@ -862,16 +969,15 @@ function renderArticle(mdFilename, rawMarkdown) {
     ${tocItems.map(t => `<a href="#${t.id}" class="toc-link" data-sec="${t.id}">${esc(t.title)}</a>`).join('')}
   </nav>` : '';
 
-  // 侧栏：默认只留目录 + 四维条；圆环/瀑布/裁决/相似日折叠去重
+  // 侧栏：默认只留目录 + 四维条；其余全部折叠
+  const sidebarScoreMeter = scoreInfo ? `
+    <div class="sidebar-score-meter">
+      <div class="ssm-label">综合 ${scoreInfo.score}</div>
+      <div class="ssm-bar"><div class="ssm-fill" style="width:${scoreInfo.score}%;background:${scoreInfo.score >= 75 ? '#22c55e' : scoreInfo.score >= 55 ? '#f59e0b' : '#ef4444'}"></div></div>
+      <div class="ssm-dir">${scoreInfo.direction === 'bullish' ? '📈 偏多' : scoreInfo.direction === 'bearish' ? '📉 偏空' : '➡️ 中性'}</div>
+    </div>` : '';
+
   const sidebarExtras = [];
-  if (scoreInfo) {
-    sidebarExtras.push(`<div class="score-gauge compact">
-      <div class="sg-circle" style="background:conic-gradient(${scoreInfo.score >= 75 ? '#22c55e' : scoreInfo.score >= 55 ? '#f59e0b' : '#ef4444'} ${scoreInfo.score * 3.6}deg, #1e293b ${scoreInfo.score * 3.6}deg)">
-        <div class="sg-inner"><div class="sg-score">${scoreInfo.score}</div><div class="sg-label">/100</div></div>
-      </div>
-      <div class="sg-direction">${scoreInfo.direction === 'bullish' ? '📈 偏多' : scoreInfo.direction === 'bearish' ? '📉 偏空' : '➡️ 中性'}</div>
-    </div>`);
-  }
   if (macro) {
     sidebarExtras.push(`<div class="sidebar-block macro-chip"><div class="sb-title">宏观阶段</div><div class="macro-label">${esc(macro.label)}</div><div class="macro-desc">${esc(macro.description)}</div></div>`);
   }
@@ -886,9 +992,10 @@ function renderArticle(mdFilename, rawMarkdown) {
   }
 
   const sidebarHtml = `
+      ${sidebarScoreMeter}
       ${dims.length ? `<div class="sidebar-block"><div class="sb-title">四维度</div>${dimRows}</div>` : ''}
       ${tocHtml}
-      ${sidebarExtras.length ? `<details class="sidebar-more"><summary>更多侧栏（评分环 / 瀑布 / 裁决）</summary>${sidebarExtras.join('')}</details>` : ''}
+      ${sidebarExtras.length ? `<details class="sidebar-more"><summary>更多侧栏</summary>${sidebarExtras.join('')}</details>` : ''}
   `;
 
   // 服务端渲染 Markdown → 折叠分节 → 净化
@@ -898,9 +1005,11 @@ function renderArticle(mdFilename, rawMarkdown) {
   }
   contentHtml = sanitizeMarkdownHtml(contentHtml);
 
-  const pageTitle = kind === 'digest' ? `${esc(dateLabel)} — 周期摘要` : `${esc(dateLabel)} — GoldRush 分析报告`;
-  const headerTitle = kind === 'digest' ? '周期摘要' : '详细分析';
-  const headerMeta = kind === 'digest'
+  const pageTitle = kind === 'flow' ? `${esc(dateLabel)} — 主力流向` : kind === 'digest' ? `${esc(dateLabel)} — 周期摘要` : `${esc(dateLabel)} — GoldRush 分析报告`;
+  const headerTitle = kind === 'flow' ? '主力流向' : kind === 'digest' ? '周期摘要' : '详细分析';
+  const headerMeta = kind === 'flow'
+    ? `${esc(dateLabel)} · CFTC · ETF · 央行`
+    : kind === 'digest'
     ? `${esc(dateLabel)} · 均分与跳变一览`
     : `${esc(dateLabel)} · 策略默认展开，长文可折叠`;
 
@@ -1131,7 +1240,7 @@ function renderArticle(mdFilename, rawMarkdown) {
       border: 1px solid #334155; border-left: 4px solid var(--pred-color, #f59e0b);
       border-radius: 16px; padding: 24px 28px;
     }
-    .pred-score-num { font-size: 3rem; font-weight: 800; color: #f8fafc; line-height: 1; }
+    .pred-score-num { font-size: 4.5rem; font-weight: 800; color: #f8fafc; line-height: 1; }
     .pred-score-sub { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
     .pred-score-meter { height: 6px; background: #0f172a; border-radius: 3px; margin-top: 10px; overflow: hidden; }
     .pred-score-fill { height: 100%; border-radius: 3px; transition: width 0.6s; }
@@ -1139,12 +1248,21 @@ function renderArticle(mdFilename, rawMarkdown) {
     .pred-headline { font-size: 1.35rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px; line-height: 1.35; }
     .pred-tag { font-size: 0.82rem; color: var(--pred-color); font-weight: 600; margin-bottom: 12px; }
     .pred-action-box {
-      background: var(--pred-bg); border: 1px solid var(--pred-color);
-      border-radius: 10px; padding: 12px 14px;
+      background: linear-gradient(135deg, #1a2744, #1e293b);
+      border: 2px solid var(--pred-color);
+      border-radius: 12px; padding: 16px 18px;
     }
-    .pred-action-label { font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-    .pred-action-text { font-size: 0.95rem; color: #e2e8f0; margin-top: 4px; font-weight: 500; line-height: 1.45; }
+    .pred-action-label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .pred-action-text { font-size: 1.1rem; color: #f1f5f9; margin-top: 4px; font-weight: 600; line-height: 1.5; }
     .pred-macro { font-size: 0.78rem; color: #93c5fd; margin-top: 10px; }
+    .pred-macro-inline { font-size: 0.72rem; color: #93c5fd; margin-top: 6px; }
+    .pred-dir-tag { font-size: 1.1rem; font-weight: 700; color: var(--pred-color); margin-bottom: 10px; }
+    .pred-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .pred-calib-badge {
+      margin-top: 10px; padding: 6px 10px;
+      background: #131c2e; border: 1px solid #334155; border-radius: 8px;
+      font-size: 0.7rem; color: #94a3b8; line-height: 1.4;
+    }
     .pred-meta-col { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
     .pred-pill {
       font-size: 0.72rem; padding: 5px 10px; border-radius: 20px;
@@ -1284,6 +1402,54 @@ function renderArticle(mdFilename, rawMarkdown) {
       #content { font-size: 0.95rem; }
       .topbar { padding: 0 16px; }
     }
+
+    /* ===== Quick Read Card ===== */
+    .quick-read-card {
+      display: flex; gap: 24px; max-width: 720px; margin: 0 auto 20px;
+      background: linear-gradient(135deg, #1a2744, #1e293b);
+      border: 1px solid #334155; border-radius: 14px;
+      padding: 20px 24px; border-left-width: 4px;
+    }
+    .qr-left { flex-shrink: 0; text-align: center; }
+    .qr-score { font-size: 3rem; font-weight: 800; color: #f1f5f9; line-height: 1; }
+    .qr-score .qr-total { font-size: 1.2rem; color: #64748b; font-weight: 500; }
+    .qr-dir { font-size: 0.9rem; font-weight: 600; margin-top: 6px; }
+    .qr-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+    .qr-action { font-size: 1.1rem; color: #f1f5f9; font-weight: 600; line-height: 1.4; }
+    .qr-why { font-size: 0.8rem; color: #94a3b8; }
+    .qr-warn { font-size: 0.75rem; color: #fcd34d; }
+
+    /* ===== Sidebar Score Meter ===== */
+    .sidebar-score-meter { margin-bottom: 16px; }
+    .ssm-label { font-size: 0.75rem; color: #64748b; margin-bottom: 4px; }
+    .ssm-bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+    .ssm-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+    .ssm-dir { font-size: 0.82rem; color: #94a3b8; }
+
+    /* ===== Flow Dashboard ===== */
+    .flow-dashboard { margin-bottom: 32px; }
+    .flow-hero {
+      display: flex; gap: 32px; align-items: center;
+      background: linear-gradient(135deg, #1a2744, #1e293b);
+      border: 1px solid #334155; border-radius: 16px; padding: 28px 32px;
+    }
+    .flow-main-score { text-align: center; flex-shrink: 0; }
+    .flow-big-num { font-size: 4.5rem; font-weight: 800; line-height: 1; }
+    .flow-big-label { font-size: 0.8rem; color: #64748b; margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
+    .flow-gauges { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    .flow-gauge { display: flex; align-items: center; gap: 12px; }
+    .fg-label { width: 48px; font-size: 0.78rem; color: #94a3b8; flex-shrink: 0; }
+    .fg-score { width: 32px; font-size: 0.9rem; font-weight: 700; color: #f1f5f9; text-align: right; flex-shrink: 0; }
+    .fg-bar { flex: 1; height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden; }
+    .fg-fill { height: 100%; border-radius: 3px; background: #f59e0b; }
+    .flow-gauge.bullish .fg-fill { background: #22c55e; }
+    .flow-gauge.bearish .fg-fill { background: #ef4444; }
+    .flow-gauge.neutral .fg-fill { background: #f59e0b; }
+    .flow-warning {
+      margin-top: 12px; padding: 10px 16px;
+      background: #422006; border: 1px solid #f59e0b55; border-radius: 10px;
+      color: #fcd34d; font-size: 0.82rem;
+    }
   </style>
 </head>
 <body>
@@ -1291,7 +1457,7 @@ function renderArticle(mdFilename, rawMarkdown) {
     <div class="topbar-left">
       <a href="/"><span class="logo">🥇 GoldRush</span></a>
       <span class="sep">/</span>
-      <span class="report-date">${esc(dateLabel)}${kind === 'digest' ? ' 周期摘要' : ' 分析报告'}</span>
+      <span class="report-date">${esc(dateLabel)}${kind === 'flow' ? ' 主力流向' : kind === 'digest' ? ' 周期摘要' : ' 分析报告'}</span>
     </div>
     <a href="/">← 返回列表</a>
   </nav>
@@ -1301,6 +1467,8 @@ function renderArticle(mdFilename, rawMarkdown) {
       ${sidebarHtml}
     </aside>
     <div class="article-main">
+      ${flowDashboardHtml}
+      ${quickReadHtml}
       ${dashboardHtml}
       <div class="article-header">
         <h1>${headerTitle}</h1>
@@ -1331,7 +1499,7 @@ function renderArticle(mdFilename, rawMarkdown) {
       function resetDefault() {
         for (const d of sections()) {
           const kind = d.getAttribute('data-sec-kind') || '';
-          d.open = ['short-strategy', 'mid-strategy', 'scenarios', 'macro'].includes(kind);
+          d.open = ['short-strategy', 'mid-strategy', 'scenarios'].includes(kind);
         }
         try { localStorage.removeItem(KEY); } catch (_) {}
       }

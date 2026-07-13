@@ -29,6 +29,9 @@ node "$PROJECT_DIR/dist/index.js" analysis --md >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 set -e
 
+# 产出主力监测日报（纯本地计算，秒级）
+node "$PROJECT_DIR/dist/index.js" flow --md >> "$LOG_FILE" 2>&1 || true
+
 if [ $EXIT_CODE -eq 0 ]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ 分析完成" >> "$LOG_FILE" 2>&1
 else

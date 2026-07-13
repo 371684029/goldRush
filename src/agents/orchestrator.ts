@@ -7,6 +7,8 @@ import { CalibrationRepo } from '../db/calibration.js';
 import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
+import { InstitutionalFlowsRepo } from '../db/institutional-flows.js';
+import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
 import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score.js';
 import { applyCalibrationScore, directionFromScore } from '../utils/calibration-adjust.js';
 import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
@@ -432,6 +434,20 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         reportDate,
       );
 
+      // 主力动向特征
+      let cftcPercentile: number | null = null;
+      let etfFlow5d: number | null = null;
+      let flowScore: number | null = null;
+      try {
+        const flowsRepo = new InstitutionalFlowsRepo(db);
+        const flowSignal = computeInstitutionalSignal(
+          report.marketData?.london?.price?.value ?? null,
+        );
+        cftcPercentile = flowSignal.cftc.percentile;
+        etfFlow5d = flowSignal.etfFlow.change5d;
+        flowScore = flowSignal.overallScore;
+      } catch { /* ignore — 主力数据可能尚未初始化 */ }
+
       featuresRepo.insert({
         date: reportDate,
         reportId,
@@ -445,6 +461,9 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         geopoliticalRisk: s?.geopoliticalRisk?.includes('高') ? 'high' : s?.geopoliticalRisk?.includes('低') ? 'low' : 'medium',
         momentumDirection: report.overall.direction === 'bullish' ? 'up' : report.overall.direction === 'bearish' ? 'down' : 'flat',
         consecutiveDays,
+        cftcPercentile,
+        etfFlow5d,
+        flowScore,
       });
     } catch (err) {
       console.error('保存报告失败:', err);

@@ -350,8 +350,9 @@ const SENTIMENT_PROMPT = `你是黄金情绪面分析专家，从市场情绪和
 
 ## 信息可靠性规则
 1. 严禁捏造数据
-2. 情绪指标需标注方向和强度
-3. 必须包含至少1条反面论据
+2. 注入的「主力动向」数据来自本地数据库（CFTC官方报告、SPDR ETF持仓），为客观数据，可直接采信
+3. 情绪指标需标注方向和强度
+4. 必须包含至少1条反面论据
 
 ## 输出格式
 {
@@ -368,13 +369,53 @@ const SENTIMENT_PROMPT = `你是黄金情绪面分析专家，从市场情绪和
   "etfFlows": "ETF资金流向描述"
 }`;
 
+/** 将本地计算的主力信号格式化为可注入 LLM prompt 的结构化文本 */
+function formatFlowSignalContext(signal: import('../types/institutional.js').InstitutionalSignal): string {
+  const { cftc, etfFlow, centralBank, overallScore, overallDirection, divergences, summary } = signal;
+  const dirLabel = overallDirection === 'bullish' ? '偏多' : overallDirection === 'bearish' ? '偏空' : '中性';
+
+  let ctx = `## 主力动向（本地计算，客观数据，可直接采信）\n`;
+  ctx += `综合评分: ${overallScore}/100 (${dirLabel})\n`;
+  ctx += `${summary}\n\n`;
+
+  // CFTC
+  ctx += `### CFTC 持仓\n`;
+  ctx += `- ${cftc.summary}\n`;
+  ctx += `- 评分: ${cftc.score}/100, 方向: ${cftc.direction}\n`;
+  ctx += `- 历史百分位: ${cftc.percentile}%\n`;
+  ctx += `- 近4周趋势: ${cftc.trend4w}\n`;
+  if (cftc.extreme) ctx += `- ⚠️ ${cftc.extremeLabel}\n`;
+
+  // ETF
+  ctx += `\n### GLD ETF 资金流\n`;
+  ctx += `- ${etfFlow.summary}\n`;
+  ctx += `- 评分: ${etfFlow.score}/100, 方向: ${etfFlow.direction}\n`;
+  ctx += `- 持仓百分位: ${etfFlow.percentile}%\n`;
+  if (etfFlow.divergence) ctx += `- ⚠️ ${etfFlow.divergenceLabel}\n`;
+
+  // 央行
+  ctx += `\n### 央行购金\n`;
+  ctx += `- ${centralBank.summary}\n`;
+
+  // 背离
+  if (divergences.length > 0) {
+    ctx += `\n### 背离信号\n`;
+    for (const d of divergences) {
+      ctx += `- [${d.severity}] ${d.description}\n`;
+    }
+  }
+
+  ctx += `\n以上数据均来自 CFTC 官方报告及 SPDR ETF 持仓记录，非 LLM 推断。请基于这些数据撰写情绪面分析。\n`;
+  return ctx;
+}
+
 export class SentimentAgent extends BaseAgent {
   constructor() {
     const config = getConfig();
     super({ name: 'sentiment', model: config.models.sentiment, systemPrompt: SENTIMENT_PROMPT });
   }
 
-  async analyze(data: MarketData): Promise<SentimentAnalysis> {
+  async analyze(data: MarketData, flowSignal?: import('../types/institutional.js').InstitutionalSignal): Promise<SentimentAnalysis> {
     const londonPrice = safeVal(() => data.london.price.value, 0);
     const etfNav = safeVal(() => data.etf.nav.value, 0);
     const etfChange = safeVal(() => data.etf.nav.change, 0);
@@ -399,7 +440,9 @@ export class SentimentAgent extends BaseAgent {
     };
 
     const raw = await this.structuredPrompt<SentimentAnalysis>(
-      `## 市场数据\n伦敦金: $${londonPrice}\nETF(518880): ${etfNav} (${etfChange > 0 ? '+' : ''}${etfChange}%)\n美元指数: ${dollarIdx}\n\n请进行情绪面分析。`,
+      `## 市场数据\n伦敦金: $${londonPrice}\nETF(518880): ${etfNav} (${etfChange > 0 ? '+' : ''}${etfChange}%)\n美元指数: ${dollarIdx}\n\n`
+      + (flowSignal ? formatFlowSignalContext(flowSignal) : '')
+      + '请基于以上数据（主力数据为本地计算、可直接采信），结合对 VIX、地缘风险的搜索，进行情绪面分析。',
       schema,
     );
     return parseSentimentAnalysis(raw);

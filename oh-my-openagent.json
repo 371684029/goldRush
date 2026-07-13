@@ -2,22 +2,22 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json",
   "agents": {
     "oracle": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "prometheus": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "metis": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "momus": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "atlas": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "sisyphus-junior": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "explore": {
       "model": "opencode-go/deepseek-v4-flash"
@@ -34,13 +34,13 @@
   },
   "categories": {
     "ultrabrain": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "deep": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "unspecified-high": {
-      "model": "opencode-go/glm-5.1"
+      "model": "opencode-go/deepseek-v4-pro"
     },
     "quick": {
       "model": "opencode-go/minimax-m2.7"

@@ -36,6 +36,10 @@ import type { OrchestrateOptions } from '../agents/orchestrator.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
+import type { InstitutionalSignal } from '../types/institutional.js';
+import { InstitutionalFlowsRepo } from '../db/institutional-flows.js';
+import { ensureInstitutionalFlows } from '../utils/ensure-flows.js';
+import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
 import type { PatternMatch } from '../types/calibration.js';
 
 export async function analysisCommand(options: {
@@ -103,6 +107,18 @@ export async function analysisCommand(options: {
 
   // Step 1.5: 加载历史数据 + 本地指标已在 TechnicalAgent 中处理
 
+  // Step 1.8: 补齐主力数据 + 计算本地主力信号（注入 SentimentAgent）
+  console.log('  📡 Step 1.8: 补齐主力动向数据...');
+  const flowsRepo = new InstitutionalFlowsRepo(getDb());
+  let flowSignal: InstitutionalSignal | undefined;
+  try {
+    await ensureInstitutionalFlows(flowsRepo);
+    flowSignal = computeInstitutionalSignal(marketData.london?.price?.value ?? null);
+    console.log(`  ✅ 主力信号: ${flowSignal.overallScore}/100 ${flowSignal.overallDirection}`);
+  } catch (err) {
+    console.warn('  ⚠️ 主力数据补齐失败（不影响分析继续）:', err instanceof Error ? err.message : err);
+  }
+
   /** 包裹 agent 调用，超时 or 异常时使用回落值 */
   async function analyzeWithFallback<T>(
     label: string,
@@ -129,7 +145,7 @@ export async function analysisCommand(options: {
 
   console.log('  📊 分析中: 情绪面 & 基金面...');
   const [sentiment, fund] = await Promise.all([
-    analyzeWithFallback('情绪面', () => new SentimentAgent().analyze(marketData), SENTIMENT_FALLBACK),
+    analyzeWithFallback('情绪面', () => new SentimentAgent().analyze(marketData, flowSignal), SENTIMENT_FALLBACK),
     analyzeWithFallback('基金面', () => new FundAgent().analyze(marketData), FUND_FALLBACK),
   ]);
   console.log(`  ✅ 情绪面 ${sentiment.score}/100 | 基金面 ${fund.valuation.level}`);
@@ -189,6 +205,11 @@ export async function analysisCommand(options: {
       },
       goldDeviation ?? 0,
       consecutiveDays,
+      flowSignal ? {
+        cftcPercentile: flowSignal.cftc.percentile,
+        etfFlow5d: flowSignal.etfFlow.change5d,
+        flowScore: flowSignal.overallScore,
+      } : undefined,
     );
     const history = featRepo.listForSimilarity(200);
     const scoreMap = new Map(reportsRepo.getRecent(365).map(r => [r.id, { score: r.overallScore, direction: r.direction }]));

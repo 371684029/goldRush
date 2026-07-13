@@ -10,15 +10,17 @@ export class ScenarioFeaturesRepo {
     const result = this.db.prepare(`
       INSERT INTO scenario_features (date, report_id, dollar_direction, dollar_magnitude,
         tips_direction, tips_magnitude, gold_deviation, vix_level,
-        fed_stance, geopolitical_risk, momentum_direction, consecutive_days)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        fed_stance, geopolitical_risk, momentum_direction, consecutive_days,
+        cftc_percentile, etf_flow_5d, flow_score)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       feature.date, feature.reportId,
       feature.dollarDirection, feature.dollarMagnitude,
       feature.tipsDirection, feature.tipsMagnitude,
       feature.goldDeviation, feature.vixLevel,
       feature.fedStance, feature.geopoliticalRisk,
-      feature.momentumDirection, feature.consecutiveDays
+      feature.momentumDirection, feature.consecutiveDays,
+      feature.cftcPercentile, feature.etfFlow5d, feature.flowScore,
     );
     return Number(result.lastInsertRowid);
   }
@@ -92,6 +94,9 @@ function mapRow(row: Record<string, unknown>): ScenarioFeature {
     geopoliticalRisk: row.geopolitical_risk as 'high' | 'medium' | 'low',
     momentumDirection: row.momentum_direction as 'up' | 'down' | 'flat',
     consecutiveDays: row.consecutive_days as number,
+    cftcPercentile: row.cftc_percentile as number | null,
+    etfFlow5d: row.etf_flow_5d as number | null,
+    flowScore: row.flow_score as number | null,
     actual5dReturn: row.actual_5d_return as number | null,
     actual5dDirection: row.actual_5d_direction as 'up' | 'down' | 'flat' | null,
     actual20dReturn: row.actual_20d_return as number | null,

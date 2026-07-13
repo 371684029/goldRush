@@ -94,6 +94,9 @@ function initializeTables(db: Database.Database): void {
       geopolitical_risk   TEXT,
       momentum_direction  TEXT,
       consecutive_days    INTEGER,
+      cftc_percentile     REAL,
+      etf_flow_5d         REAL,
+      flow_score          REAL,
       actual_5d_return     REAL,
       actual_5d_direction  TEXT,
       actual_20d_return   REAL,
@@ -114,11 +117,37 @@ function initializeTables(db: Database.Database): void {
     )
   `;
 
+  const institutionalFlowsDDL = `
+    CREATE TABLE IF NOT EXISTS institutional_flows (
+      date TEXT PRIMARY KEY,
+      cftc_nc_long REAL,
+      cftc_nc_short REAL,
+      cftc_nc_net REAL,
+      cftc_nc_change REAL,
+      cftc_comm_net REAL,
+      cftc_open_interest REAL,
+      cftc_report_date TEXT,
+      gld_holdings_tons REAL,
+      gld_holdings_change REAL,
+      gld_aum_million REAL,
+      iau_holdings_tons REAL,
+      cn_etf_518880_shares REAL,
+      cn_etf_518880_flow REAL,
+      cn_etf_159934_shares REAL,
+      cn_etf_159934_flow REAL,
+      cb_pboc_reserves REAL,
+      cb_pboc_change REAL,
+      comex_volume REAL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `;
+
   db.exec(goldPricesDDL);
   db.exec(fundNavDDL);
   db.exec(analysisReportsDDL);
   db.exec(scenarioFeaturesDDL);
   db.exec(searchCacheDDL);
+  db.exec(institutionalFlowsDDL);
 
   // 创建索引
   db.exec(`CREATE INDEX IF NOT EXISTS idx_reports_date ON analysis_reports(date)`);
@@ -126,4 +155,5 @@ function initializeTables(db: Database.Database): void {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_features_date ON scenario_features(date)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_features_backfill ON scenario_features(backfill_status)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_cache_expires ON search_cache(expires_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_flows_cftc ON institutional_flows(cftc_report_date)`);
 }

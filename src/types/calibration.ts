@@ -60,6 +60,10 @@ export interface ScenarioFeature {
   geopoliticalRisk: 'high' | 'medium' | 'low';
   momentumDirection: 'up' | 'down' | 'flat';
   consecutiveDays: number;
+  // 主力动向特征（Phase 3）
+  cftcPercentile: number | null;    // CFTC 净多头历史百分位
+  etfFlow5d: number | null;         // GLD 近5日持仓变化（吨）
+  flowScore: number | null;         // 主力综合评分
   // 回测回填字段
   actual5dReturn: number | null;
   actual5dDirection: 'up' | 'down' | 'flat' | null;

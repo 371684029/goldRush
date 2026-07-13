@@ -16,6 +16,9 @@ export interface ScenarioFeatureDraft {
   geopoliticalRisk: 'high' | 'medium' | 'low';
   momentumDirection: 'up' | 'down' | 'flat';
   consecutiveDays: number;
+  cftcPercentile: number | null;
+  etfFlow5d: number | null;
+  flowScore: number | null;
 }
 
 export function buildScenarioFeatureDraft(
@@ -29,6 +32,7 @@ export function buildScenarioFeatureDraft(
   },
   goldDeviation: number,
   consecutiveDays: number,
+  flowFields?: { cftcPercentile: number | null; etfFlow5d: number | null; flowScore: number | null },
 ): ScenarioFeatureDraft {
   const m = report.marketData;
   const d = m?.dollarIndex?.value?.change ?? 0;
@@ -61,6 +65,9 @@ export function buildScenarioFeatureDraft(
         : 'medium',
     momentumDirection: dir === 'bullish' ? 'up' : dir === 'bearish' ? 'down' : 'flat',
     consecutiveDays,
+    cftcPercentile: flowFields?.cftcPercentile ?? null,
+    etfFlow5d: flowFields?.etfFlow5d ?? null,
+    flowScore: flowFields?.flowScore ?? null,
   };
 }
 

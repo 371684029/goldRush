@@ -1,24 +1,14 @@
 // 文章页折叠：按 h2 分节、反驳列表折叠、默认展开策略
 
-/** 默认展开的章节关键词（策略 / 情景 / 宏观） */
+/** 仅展开的章节关键词（策略 / 情景） */
 const OPEN_SECTION_KEYS = [
   '短期策略',
   '中长期策略',
   '情景分析',
-  '宏观阶段',
 ];
 
-/** 默认折叠的长文关键词 */
-const COLLAPSED_SECTION_KEYS = [
-  '强制反驳',
-  '长期方向',
-  '尾部风险',
-  '四维度',
-  '裁决摘要',
-  '历史相似',
-  '评分构成',
-  '综合研判',
-];
+/** 不再单独列出；默认全部折叠，只通过 OPEN_SECTION_KEYS 白名单放行 */
+const COLLAPSED_SECTION_KEYS = [];
 
 function sectionKind(title) {
   const t = String(title || '');
@@ -37,9 +27,7 @@ function sectionKind(title) {
 
 function shouldOpenByDefault(title) {
   const t = String(title || '');
-  if (OPEN_SECTION_KEYS.some(k => t.includes(k))) return true;
-  if (COLLAPSED_SECTION_KEYS.some(k => t.includes(k))) return false;
-  return false;
+  return OPEN_SECTION_KEYS.some(k => t.includes(k));
 }
 
 /**

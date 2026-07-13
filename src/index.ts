@@ -12,6 +12,7 @@ import { diffCommand } from './commands/diff.js';
 import { digestCommand } from './commands/digest.js';
 import { notifyCommand } from './commands/notify.js';
 import { outlookCommand } from './commands/outlook.js';
+import { flowCommand } from './commands/flow.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -203,6 +204,28 @@ program
   .action(async (dateA: string, dateB: string, opts) => {
     try {
       diffCommand(dateA, dateB, opts.json ?? false);
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('flow')
+  .description('主力动向监测（CFTC 持仓 + ETF 资金流 + 央行购金 + 背离检测）')
+  .option('--json', 'JSON 格式输出')
+  .option('--md', '保存为 Markdown 到 docs/')
+  .option('--cftc', '仅显示 CFTC 持仓')
+  .option('--etf', '仅显示 ETF 资金流')
+  .option('--init', '首次回填全部历史数据')
+  .action(async (opts) => {
+    try {
+      await flowCommand({
+        json: opts.json ?? false,
+        md: opts.md ?? false,
+        cftcOnly: opts.cftc ?? false,
+        etfOnly: opts.etf ?? false,
+        init: opts.init ?? false,
+      });
     } finally {
       closeDb();
     }
