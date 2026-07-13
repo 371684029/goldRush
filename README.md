@@ -1,6 +1,6 @@
 # GoldRush — 黄金投资研究 Agent
 
-一个 CLI 工具，一条命令自动采集金价数据、四维度分析、强制反驳、回测校准，输出**短期+中长期双视角**策略报告。
+一个 CLI 工具，一条命令自动采集金价数据、四维度分析、强制反驳、回测校准、主力动向监测，输出**短期+中长期双视角**策略报告。
 
 面向通过**支付宝基金**做黄金中长期配置的个人投资者，同时兼顾短线参考。
 
@@ -36,20 +36,23 @@ cp .env.example .env
 ### 运行
 
 ```bash
-# 查看实时金价
+# 默认仪表盘 — 一眼看懂（金价 + 研判 + 主力 + 建议）
+node dist/index.js
+
+# 实时金价
 node dist/index.js price
 
-# 综合分析报告（默认双视角）
+# 综合分析报告（默认双视角 + 信号一致性 + 人话建议）
 node dist/index.js analysis
 
-# 导出 Markdown 投资日报（人类可读，便于存档/分享）
+# 导出 Markdown 投资日报
 node dist/index.js analysis --md
 
-# 只看短期视角
-node dist/index.js analysis -H short
+# 主力动向监测（CFTC 持仓 + ETF 资金流 + 央行购金 + 背离检测）
+node dist/index.js flow
 
-# 只看中长期视角
-node dist/index.js analysis -H mid
+# 导出主力监测日报
+node dist/index.js flow --md
 
 # 基金对比分析
 node dist/index.js fund
@@ -57,53 +60,47 @@ node dist/index.js fund
 # 首次回填历史（无需 Tavily，Yahoo 日线）
 node dist/index.js init-history --days 60
 
-# 综合分析（启动前自动补齐 60 天历史）
-node dist/index.js analysis
-
-# 查看历史数据
-node dist/index.js history
-
-# 生成 Markdown 报告（保存到 docs/ 目录）
-node dist/index.js analysis --md
+# 首次回填主力数据
+node dist/index.js flow --init
 ```
 
 建议设置 alias 方便使用：
 
 ```bash
 alias goldrush="node /path/to/goldRush/dist/index.js"
+goldrush                    # 默认仪表盘
 goldrush price
 goldrush analysis
+goldrush flow
 ```
 
 ---
 
 ## 命令一览
 
-| 命令 | 说明 | 优先级 |
-|------|------|--------|
-| `goldrush price` | 实时金价速查，自动存 SQLite | P0 |
-| `goldrush analysis` | 综合分析报告（四维度+反驳+情景+双轨策略） | P1 |
-| `goldrush analysis -H short` | 仅短期视角（日线/入场止损） | P1 |
-| `goldrush analysis -H mid` | 仅中长期视角（周线/定投加减仓） | P1 |
-| `goldrush analysis --json` | JSON 格式输出 | P1 |
-| `goldrush analysis --save` | 保存报告到文件 (JSON) | P1 |
-| `goldrush analysis --md` | 保存报告为 Markdown 到 docs/ 目录 | P1 |
-| `goldrush fund` | 黄金基金对比（费率/溢价/定投信号） | P1 |
-| `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
-| `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
-| `goldrush snapshot` | 手动保存当日数据快照 | P1 |
-| `goldrush init-history` | **Yahoo GC=F 回填 60 天** + 可选当日采集（`--days 60`） | P1 |
-| `goldrush history` | 查看历史金价 | P1 |
-| `goldrush history --type reports` | 查看历史分析报告 | P1 |
-| `goldrush history --type funds` | 查看本地基金净值（fund_nav） | P1 |
-| `goldrush diff <dateA> <dateB>` | 对比两日报告变化 | P1 |
-| `goldrush digest --days 7` | 周期摘要（均分、跳变） | P1 |
-| `goldrush digest --md` | 周期摘要写入 docs/ | P1 |
-| `goldrush calibrate --tearsheet` | 区间收益分布 + 权益曲线 | P1 |
-| `goldrush notify --test` | Webhook 连通性测试 | P1 |
-| `goldrush notify --daily --exit 0` | 每日任务结束告警 | P1 |
-| `goldrush outlook` | **1/3/5 年长期方向预期**（读最新报告） | P1 |
-| `goldrush outlook --md` | 长期展望写入 docs/ | P1 |
+| 命令 | 说明 |
+|------|------|
+| `goldrush` | **默认仪表盘**（金价 + 最新研判 + 主力动向 + 操作建议） |
+| `goldrush price` | 实时金价速查，自动存 SQLite |
+| `goldrush analysis` | 综合分析报告（四维度+反驳+情景+双轨策略+信号一致性+人话建议） |
+| `goldrush analysis -H short` | 仅短期视角（日线/入场止损） |
+| `goldrush analysis -H mid` | 仅中长期视角（周线/定投加减仓） |
+| `goldrush analysis --json` | JSON 格式输出 |
+| `goldrush analysis --md` | 保存报告为 Markdown 到 docs/ 目录 |
+| `goldrush flow` | **主力动向监测**（CFTC + GLD ETF + 央行购金 + 背离检测） |
+| `goldrush flow --init` | 首次回填 CFTC + GLD 全部历史数据 |
+| `goldrush flow --json` | JSON 格式输出 |
+| `goldrush flow --md` | 主力日报写入 docs/ |
+| `goldrush fund` | 黄金基金对比（费率/溢价/定投信号） |
+| `goldrush calibrate` | 回测校准（历史准确率统计） |
+| `goldrush calibrate --days 90` | 回顾 90 天 |
+| `goldrush snapshot` | 手动保存当日数据快照 |
+| `goldrush init-history` | Yahoo GC=F 回填 60 天 |
+| `goldrush history` | 查看历史金价/报告/基金 |
+| `goldrush diff <dateA> <dateB>` | 对比两日报告变化 |
+| `goldrush digest --days 7` | 周期摘要（均分、跳变） |
+| `goldrush notify --test` | Webhook 连通性测试 |
+| `goldrush outlook` | 1/3/5 年长期方向预期 |
 
 ---
 
@@ -118,46 +115,70 @@ Commander.js (命令路由)
     ▼
 Orchestrator (编排层)
     │
-    ├──→ 数据采集 Agent (deepseek-v4-flash)
-    │     搜索: Tavily + opencode websearch (fallback)
-    │     交叉验证 + 来源分级 (A/B/C)
+    ├──→ 数据采集层
+    │     ├── Tavily 搜索 (LLM 提取金价/美元/美债)
+    │     ├── Yahoo Finance 直连 (GC=F/DXY 实时价, A级锚定源)
+    │     ├── CFTC.gov ZIP 解析 (COT 持仓报告, 周度)
+    │     └── SPDR CSV 解析 (GLD ETF 持仓, 日度)
     │
-    ├──→ 四维度分析 (glm-5.1 × 4)
-    │     ├── 技术面 (本地计算 MA/RSI/MACD + LLM 解读)
+    ├──→ 数据验证层
+    │     ├── 多源交叉验证 (Yahoo锚定 + Tavily多源)
+    │     ├── 来源分级 (A/B/C)
+    │     └── Yahoo A级源注入 → 置信度 46%→65%+
+    │
+    ├──→ 主力动向层 (纯本地计算, 不依赖 LLM)
+    │     ├── CFTC 持仓评分 (非商业净多百分位 + 趋势)
+    │     ├── GLD ETF 资金流评分 (5日/20日持仓变化)
+    │     ├── 央行购金信号 (PBOC 月度储备)
+    │     ├── 背离检测 (价-仓-量 背离)
+    │     └── 综合主力评分
+    │
+    ├──→ 四维度分析 (LLM)
+    │     ├── 技术面 (本地 MA/RSI/MACD + LLM 解读)
     │     ├── 基本面 (美元/美债/美联储)
-    │     ├── 情绪面 (央行购金/CFTC/VIX/地缘)
+    │     ├── 情绪面 (注入本地主力数据替代 LLM 猜测)
     │     └── 基金面 (费率/溢价/估值水位)
     │
-    ├──→ 强制反驳 Agent (glm-5.1, 独立 session)
-    │     专门找看空论据，客观指标判定反驳强度
-    │     评分修正: weak=10% / moderate=20% / strong=35%
+    ├──→ 强制反驳 Agent (独立 session)
     │
-    └──→ 综合编排 Agent (glm-5.1)
+    └──→ 综合编排 Agent
           注入校准上下文 + 三情景分析 + 尾部风险
-          输出双轨策略: 短期入场止损 + 中长期定投加减仓
+          输出双轨策略 + 信号一致性 + 人话建议
 ```
 
 ---
 
 ## 核心设计
 
-### 搜索层（Tavily 单引擎）
+### 数据源
 
-| 数据类型 | 方式 | 说明 |
-|---------|------|------|
-| 国际金价 / COMEX / 美债 | Tavily `finance` topic | 联网金融搜索 |
-| 上海金 / ETF / 基金净值 | Tavily | 同上 |
-| 搜索结果缓存 | SQLite `search_cache` | 默认 5 分钟 TTL，降低重复调用 |
+| 数据源 | 方式 | 频率 | 用途 |
+|--------|------|------|------|
+| Tavily 搜索 | LLM 提取 | 按需 | 金价/美元/美债/新闻 |
+| **Yahoo Finance** | **HTTP 直连 (零 LLM)** | 实时 | GC=F 金价锚定源 / DXY / 10Y |
+| **CFTC.gov** | **ZIP 下载 + 本地解析** | 周度 | COT 持仓报告 (黄金 088691) |
+| **SPDR** | **CSV 下载 + 本地解析** | 日度 | GLD ETF 持仓 (吨/变化/AUM) |
+| PBOC 官网 | 新闻搜索 | 月度 | 中国央行黄金储备 |
 
-未配置 `TAVILY_API_KEY` 时搜索降级为空结果；`history` / `calibrate` 等纯本地命令不受影响。
+### 主力动向监测 (`goldrush flow`)
 
-### 信息可靠性五道防线
+纯本地计算，不依赖 LLM。追踪三大维度：
 
-1. **来源分级** — A级(交易所/央行) > B级(财经媒体) > C级(自媒体)
-2. **3源交叉验证** — 同一数据至少3个独立来源
-3. **中英文双搜** — 避免单一信息茧房
-4. **反向核查** — 重大新闻必须搜反对观点
-5. **时效标注** — 每个数据标注获取时间和来源
+| 维度 | 数据 | 评分逻辑 |
+|------|------|----------|
+| CFTC 投机持仓 | 非商业净多头 | 历史百分位 (40%) + 趋势 (30%) + 极端信号 (20%) |
+| GLD ETF 资金流 | 日度持仓变化 | 5日趋势 (40%) + 20日趋势 (30%) + 持仓水位 (20%) |
+| 央行购金 | PBOC 月度储备 | 连续增持月数 (50%) + 月度变化 (30%) |
+
+综合评分 = 0.40×CFTC + 0.30×ETF + 0.15×央行 + 0.15×其他。
+
+### 信息可靠性
+
+1. **Yahoo A 级锚定源** — 直连数据作为交叉验证基准，不依赖 LLM 提取
+2. **来源分级** — A级(交易所/央行) > B级(财经媒体) > C级(自媒体)
+3. **3源交叉验证** — 同一数据至少3个独立来源
+4. **中英文双搜** — 避免单一信息茧房
+5. **反向核查** — 重大新闻必须搜反对观点
 
 ### 强制反驳机制
 
@@ -172,8 +193,28 @@ Orchestrator (编排层)
     ↓
 评分修正: 70 → 64 (下调 6 分)
     ↓
-最终输出: 64 分 + 反驳摘要 + 尾部风险
+最终输出: 64 分 + 反驳摘要 + 尾部风险 + 信号一致性 + 人话建议
 ```
+
+### 信号一致性检查
+
+四维度方向一致性检测：
+
+| 一致性 | 标记 | 含义 |
+|--------|------|------|
+| 4/4 一致 | ✅ 强一致 | 全部维度同方向 |
+| 3/4 一致 | ⚠️ 中等 | 1个维度唱反调 |
+| ≤2/4 一致 | 🔴 弱 | 方向分歧，谨慎参考 |
+
+### 人话分数映射
+
+| 评分 | 建议 |
+|------|------|
+| 0-30 | 🔴 暂停定投，等待评分回升至 45 以上 |
+| 30-45 | 🟠 放慢定投节奏，不加仓 |
+| 45-55 | 🟡 维持基础定投，按日历执行 |
+| 55-75 | 🟢 维持定投；急跌可小幅加码，高位不追 |
+| 75-100 | 🔵 可适度加码，但高位不追、设好止盈 |
 
 ### 双视角输出
 
@@ -201,15 +242,7 @@ Orchestrator (编排层)
 
 ---
 
-## 历史报告
-
-运行 `analysis --md` 会在 `docs/` 目录生成当日 Markdown 报告：
-
-```bash
-node dist/index.js analysis --md    # 生成 docs/goldrush-analysis-YYYY-MM-DD.md
-```
-
-报告包含完整四维度分析、强制反驳、双轨策略和尾部风险，可直接用于发文章或归档查阅。每次分析也自动存入 SQLite（`analysis_reports` 表），可通过 `history --type reports` 查看。
+## Web 报告展示
 
 启动内置 HTTP 服务即可在浏览器查看所有报告：
 
@@ -217,6 +250,13 @@ node dist/index.js analysis --md    # 生成 docs/goldrush-analysis-YYYY-MM-DD.m
 node server.cjs
 # → http://localhost 或服务器 IP: http://106.14.92.235
 ```
+
+**Web 特性**：
+- 🏠 首页：最新研判 + 历史报告列表 + 搜索/排序
+- 📊 **30秒速读卡片**：评分 + 操作建议 + 维度标签，一眼看懂
+- 📈 **预测仪表盘**：大号评分 + 校准置信 + 三情景概率
+- 📁 **智能折叠**：默认只展开策略+情景，其余分析折叠
+- 🏦 **主力仪表盘**：CFTC/ETF/央行 评分条 + 背离警告
 
 ### 每日定时分析
 
@@ -227,7 +267,7 @@ crontab -l
 # 30 11 * * * /root/git/goldRush/scripts/daily-analysis.sh
 ```
 
-日志文件在 `logs/daily-YYYY-MM-DD.log`，报告自动保存到 `docs/` 目录。
+日志文件在 `logs/daily-YYYY-MM-DD.log`，报告自动保存到 `docs/` 目录，同步产出分析日报 + 主力监测日报。
 
 ---
 
@@ -239,11 +279,12 @@ SQLite 数据库自动创建在 `data/goldrush.db`：
 |----|------|
 | `gold_prices` | 每日金价快照（伦敦金/上海金/ETF/美元/美债） |
 | `fund_nav` | 基金净值快照（000216/002610 等） |
+| `institutional_flows` | **主力动向数据**（CFTC持仓/GLD持仓/PBOC储备） |
 | `analysis_reports` | 分析报告存档（含完整 JSON） |
-| `scenario_features` | 市场特征向量（用于历史模式匹配） |
+| `scenario_features` | 市场特征向量（含主力维度，用于历史模式匹配） |
 | `search_cache` | 搜索缓存（5分钟内免重复请求） |
 
-每次运行 `price` 或 `analysis` 自动存数据，无需手动操作。
+每次运行 `price`、`analysis` 或 `flow` 自动存数据，无需手动操作。
 
 ---
 
@@ -258,6 +299,7 @@ SQLite 数据库自动创建在 `data/goldrush.db`：
 | MACD | `src/indicators/macd.ts` | 动量方向、金叉死叉 |
 | 布林带 | `src/indicators/bollinger.ts` | 波动区间、%B |
 | 历史百分位 | `src/indicators/percentile.ts` | 估值水位判断 |
+| **主力信号** | `src/indicators/flow-signal.ts` | CFTC/ETF/央行评分 + 背离检测 |
 
 数据积累 20 天后技术指标自动生效，注入技术面 Agent prompt。
 
@@ -270,8 +312,10 @@ goldRush/
 ├── src/
 │   ├── index.ts              # CLI 入口 (Commander.js)
 │   ├── commands/
+│   │   ├── dashboard.ts      # [新] 默认仪表盘
 │   │   ├── price.ts          # 实时金价
-│   │   ├── analysis.ts       # 综合分析报告
+│   │   ├── analysis.ts       # 综合分析报告 (含主力+一致性+人话)
+│   │   ├── flow.ts           # [新] 主力动向监测
 │   │   ├── fund.ts           # 基金对比
 │   │   ├── calibrate.ts      # 回测校准
 │   │   ├── snapshot.ts       # 数据快照
@@ -279,39 +323,45 @@ goldRush/
 │   ├── agents/
 │   │   ├── base.ts           # Agent 基类 (opencode CLI)
 │   │   ├── data-collector.ts # 数据采集 + Tavily 搜索
-│   │   ├── validator.ts      # 信息验证 + 来源分级
-│   │   ├── analysis-agents.ts# 四维度 Agent (技术/基本/情绪/基金)
+│   │   ├── validator.ts      # 信息验证 (含 Yahoo 锚定源注入)
+│   │   ├── analysis-agents.ts# 四维度 Agent (情绪面注入主力数据)
 │   │   ├── rebuttal.ts       # 强制反驳 Agent
 │   │   └── orchestrator.ts   # 综合编排 Agent
 │   ├── data/
+│   │   ├── yahoo-live.ts     # [新] Yahoo 实时价格 (GC=F/DXY/10Y)
+│   │   ├── yahoo-gold-history.ts # Yahoo 历史金价
+│   │   ├── cftc-grabber.ts   # [新] CFTC COT 报告采集
+│   │   ├── etf-grabber.ts    # [新] GLD ETF 持仓采集
 │   │   ├── search-router.ts  # Tavily 搜索封装及路由
-│   │   ├── opencode-search.ts# opencode 搜索封装
-│   │   └── search-router.ts  # 搜索路由器
+│   │   └── tavily-client.ts  # Tavily API 客户端
 │   ├── db/
-│   │   ├── index.ts          # SQLite 初始化
+│   │   ├── index.ts          # SQLite 初始化 (含 institutional_flows)
 │   │   ├── gold-prices.ts    # 金价 CRUD
+│   │   ├── institutional-flows.ts # [新] 主力数据 CRUD
 │   │   ├── fund-nav.ts       # 基金净值 CRUD
 │   │   ├── reports.ts        # 报告存档 CRUD
-│   │   ├── scenario-features.ts # 特征向量 CRUD
+│   │   ├── scenario-features.ts # 特征向量 CRUD (含主力维度)
 │   │   ├── search-cache.ts   # 搜索缓存
 │   │   └── calibration.ts    # 校准回测逻辑
 │   ├── indicators/
-│   │   ├── ma.ts             # 均线
-│   │   ├── rsi.ts            # RSI
-│   │   ├── macd.ts           # MACD
-│   │   ├── bollinger.ts      # 布林带
-│   │   └── percentile.ts     # 历史百分位
-│   ├── types/                # TypeScript 类型定义
-│   └── utils/                # 工具函数
-├── data/
-│   └── goldrush.db           # SQLite (自动创建)
-├── docs/                     # Markdown 分析报告 (analysis --md)
-├── scripts/
-│   └── daily-analysis.sh     # 每日定时分析脚本 (cron 11:30)
-├── logs/                     # 定时运行日志
-├── package.json
-├── tsconfig.json
-└── PLAN.md                   # 完整规划文档
+│   │   ├── ma.ts / rsi.ts / macd.ts / bollinger.ts / percentile.ts
+│   │   └── flow-signal.ts    # [新] 主力信号计算
+│   ├── types/
+│   │   ├── institutional.ts  # [新] 主力数据类型
+│   │   └── ...
+│   └── utils/
+│       ├── ensure-flows.ts   # [新] 主力数据自动补齐
+│       ├── plain-advice.ts   # [新] 人话建议 + 信号一致性
+│       └── ...
+├── web/
+│   └── article-collapse.cjs  # Web 智能折叠 (只展开策略+情景)
+├── server.cjs                # Web 服务 (端口80, 含新仪表盘)
+├── data/goldrush.db          # SQLite (自动创建)
+├── docs/                     # 报告存档
+│   ├── FLOW-PLAN.md          # 主力监测设计规划
+│   └── OPTIMIZATION.md       # 优化路线图 (五维度)
+├── scripts/daily-analysis.sh # 每日定时分析 (含 flow --md)
+└── package.json
 ```
 
 ---
@@ -322,19 +372,13 @@ goldRush/
 |------|------|------|
 | 语言 | TypeScript | 类型安全 |
 | CLI | Commander.js | 成熟稳定 |
-| LLM | opencode CLI (`opencode run -m`) | Go 套餐 $10/月封顶 |
+| LLM | opencode CLI | Go 套餐 $10/月封顶 |
 | 搜索(联网) | Tavily | 金融分类搜索、内容提取 |
-| 搜索(中文) | opencode websearch | 中文数据源覆盖好 |
+| 实时数据 | **Yahoo Finance API** | 免费、零 LLM、A 级锚定源 |
+| 持仓数据 | **CFTC.gov + SPDR** | 官方数据、本地解析 |
 | 数据库 | SQLite (better-sqlite3) | 零配置、本地、够用 |
 | 终端输出 | chalk + cli-table3 | 表格+颜色 |
-| 报告展示 | 内置 HTTP 服务 (server.cjs) | 端口80 文件列表页 |
-
-### 启动报告展示页
-
-```bash
-node server.cjs
-# 访问 http://localhost 查看 docs/ 下所有报告
-```
+| 报告展示 | 内置 HTTP 服务 (server.cjs) | 端口80 仪表盘+折叠 |
 
 ---
 
@@ -349,6 +393,9 @@ npm run build
 
 # 类型检查
 npm run lint
+
+# 测试
+npm test
 ```
 
 ---
@@ -357,13 +404,12 @@ npm run lint
 
 | 文档 | 内容 |
 |------|------|
-| [PLAN.md](./PLAN.md) | 完整项目规划（架构、数据流、类型定义、prompt 设计） |
-| [FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划（CFTC/ETF/央行 数据采集+分析） |
-| [OPTIMIZATION.md](./docs/OPTIMIZATION.md) | **优化路线图**（数据真实性、覆盖度、实时性、可靠性、交互） |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录（为什么这样设计） |
-| [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率改进规范（回测校准、强制反驳、情景分析） |
-| [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论深度分析（6种范式对比） |
-| [PARADIGMS.md](./PARADIGMS.md) | 金融 Agent 架构范式参考 |
+| [FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
+| [OPTIMIZATION.md](./docs/OPTIMIZATION.md) | **优化路线图**（真实性、覆盖度、实时性、可靠性、交互） |
+| [PLAN.md](./PLAN.md) | 完整项目规划 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录 |
+| [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率改进规范 |
+| [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论深度分析 |
 
 ---
 
@@ -371,6 +417,7 @@ npm run lint
 
 - 本工具仅供投资研究参考，**不构成投资建议**
 - LLM 分析存在固有局限，请结合自身判断做出决策
-- 数据依赖搜索结果，可能存在延迟或偏差
+- 数据依赖搜索结果及外部 API，可能存在延迟或偏差
 - 建议积累 20 天以上数据后再使用 `calibrate` 命令
-- Tavily API 免费额度 1000 次/月，每次 analysis 约消耗 8-12 次搜索
+- Tavily API 免费额度 1000 次/月
+- 主力数据（CFTC/GLD）首次使用需运行 `goldrush flow --init` 回填历史
