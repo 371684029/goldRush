@@ -7,6 +7,7 @@ export interface HistoryPriceRow {
   date: string;
   londonClose: number;
   shanghaiClose?: number | null;
+  volume?: number | null;               // COMEX GC=F 日成交量
 }
 
 /** 过去 days 个日历日（含 asOf）中 london_close 缺失的日期，升序 */

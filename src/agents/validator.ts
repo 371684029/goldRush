@@ -6,6 +6,7 @@ import { getDb } from '../db/index.js';
 import { SearchCacheRepo } from '../db/search-cache.js';
 import { SearchRouter } from '../data/search-router.js';
 import { fetchGoldLive, fetchDxyLive } from '../data/yahoo-live.js';
+import { checkPriceConsistency } from '../utils/price-consistency.js';
 import {
   crossValidate,
   checkFreshness,
@@ -172,6 +173,18 @@ export class ValidatorAgent extends BaseAgent {
       warnings.push(freshness.warning);
     }
 
+    // 价格内部一致性校验（纯程序化，不依赖 LLM）
+    const londonVal = data.london?.price?.value;
+    const shanghaiVal = data.shanghai?.price?.value;
+    const consistency = londonVal != null ? checkPriceConsistency(
+      londonVal,
+      shanghaiVal ?? null,
+      yahooGold?.price ?? null,
+    ) : null;
+    if (consistency) {
+      warnings.push(...consistency.warnings);
+    }
+
     const dataSummary = [
       `时间戳: ${data.timestamp}`,
       `伦敦金: $${data.london?.price?.value ?? 'N/A'} (${data.london?.price?.change ?? 'N/A'}%) 来源: ${data.london?.price?.source ?? 'N/A'}`,
@@ -221,9 +234,13 @@ export class ValidatorAgent extends BaseAgent {
       }
     }
 
-    const localConfidence = validations.length > 0
+    const baseLocalConfidence = validations.length > 0
       ? Math.round(validations.reduce((sum, v) => sum + v.confidence, 0) / validations.length)
       : 50;
+
+    // 注入价格一致性校验奖励分（三合一：跨市场/Yahoo锚定/历史连续）
+    const consistencyBonus = consistency?.bonusConfidence ?? 0;
+    const localConfidence = Math.max(10, Math.min(95, baseLocalConfidence + consistencyBonus));
 
     let overallConfidence: number;
     if (llmAssessment) {

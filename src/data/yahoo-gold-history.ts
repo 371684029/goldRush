@@ -13,6 +13,7 @@ interface YahooChartResult {
       close?: Array<number | null>;
       high?: Array<number | null>;
       low?: Array<number | null>;
+      volume?: Array<number | null>;
     }>;
   };
 }
@@ -76,6 +77,7 @@ export async function fetchYahooGoldDailyCloses(
   const closes = quote?.close ?? [];
   const highs = quote?.high ?? [];
   const lows = quote?.low ?? [];
+  const volumes = quote?.volume ?? [];
 
   const from = addCalendarDays(asOf, -(calendarDays - 1));
   const rows: HistoryPriceRow[] = [];
@@ -91,6 +93,7 @@ export async function fetchYahooGoldDailyCloses(
       date,
       londonClose: Math.round(close * 100) / 100,
       shanghaiClose: null,
+      volume: volumes[i] ?? null,
     });
   }
 
@@ -106,6 +109,7 @@ export function parseYahooChartResponse(
   const result = body.chart?.result?.[0];
   const timestamps = result?.timestamp ?? [];
   const closes = result?.indicators?.quote?.[0]?.close ?? [];
+  const volumes = result?.indicators?.quote?.[0]?.volume ?? [];
   const rows: HistoryPriceRow[] = [];
 
   for (let i = 0; i < timestamps.length; i++) {
@@ -113,7 +117,7 @@ export function parseYahooChartResponse(
     if (close == null || !Number.isFinite(close) || close <= 0) continue;
     const date = yahooTimestampToDate(timestamps[i]);
     if (date < from || date > to) continue;
-    rows.push({ date, londonClose: close, shanghaiClose: null });
+    rows.push({ date, londonClose: close, shanghaiClose: null, volume: volumes[i] ?? null });
   }
   return rows;
 }

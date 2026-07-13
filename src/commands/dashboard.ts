@@ -16,6 +16,16 @@ import { scoreToAdvice } from '../utils/plain-advice.js';
 import { separator, directionMark, scoreBar } from '../utils/format.js';
 import { formatNow } from '../utils/time.js';
 
+/** 计算数据年龄（人类可读） */
+function getDataAge(createdAt: string): string {
+  const created = new Date(createdAt + 'Z');
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - created.getTime()) / 60000);
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}小时前`;
+  return `${Math.floor(diffMin / 1440)}天前`;
+}
+
 export async function dashboardCommand(): Promise<void> {
   const db = getDb();
   const priceRepo = new GoldPricesRepo(db);
@@ -62,6 +72,11 @@ export async function dashboardCommand(): Promise<void> {
   }
   if (parts.length > 0) {
     console.log(chalk.gray('  ' + parts.join('  │  ')));
+    // 时效标注
+    if (latest?.createdAt) {
+      const age = getDataAge(latest.createdAt);
+      console.log(chalk.gray(`  🕐 数据更新于 ${latest.date}${age ? `（${age}）` : ''}`));
+    }
   } else {
     console.log(chalk.gray('  暂无价格数据，运行 goldrush price 开始采集'));
   }
