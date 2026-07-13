@@ -13,6 +13,7 @@ import { digestCommand } from './commands/digest.js';
 import { notifyCommand } from './commands/notify.js';
 import { outlookCommand } from './commands/outlook.js';
 import { flowCommand } from './commands/flow.js';
+import { dashboardCommand } from './commands/dashboard.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -231,4 +232,13 @@ program
     }
   });
 
-program.parse();
+// 默认：无参数时显示仪表盘
+if (process.argv.length <= 2) {
+  try {
+    await dashboardCommand();
+  } finally {
+    closeDb();
+  }
+} else {
+  program.parse();
+}

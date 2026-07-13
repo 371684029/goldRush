@@ -6,6 +6,7 @@ import { TechnicalAgent, FundamentalAgent, SentimentAgent, FundAgent, TECHNICAL_
 import { RebuttalAgent, REBUTTAL_FALLBACK } from '../agents/rebuttal.js';
 import { OrchestratorAgent } from '../agents/orchestrator.js';
 import { AgentTimeoutError } from '../agents/base.js';
+import chalk from 'chalk';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
 import { formatReportMarkdown } from '../utils/report-md.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
@@ -32,6 +33,7 @@ import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js
 import { buildScenarioFeatureDraft, draftToScenarioFeature } from '../utils/scenario-feature-builder.js';
 import { computeScenarioProbabilities } from '../utils/scenario-probability.js';
 import { matchCausalChains, formatCausalChainsConsole } from '../utils/gold-causal-rules.js';
+import { scoreToAdvice, checkConsistency, consistencyEmoji } from '../utils/plain-advice.js';
 import type { OrchestrateOptions } from '../agents/orchestrator.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
@@ -492,24 +494,44 @@ function printReport(
     console.log('\n' + formatLongTermOutlookConsole(extras.longTermOutlook));
   }
 
-  // 综合研判
+  // 综合研判 + 人话建议
   const scoreDisplay = overall?.score ?? 'N/A';
   const directionDisplay = overall?.direction ?? 'neutral';
+  const advice = overall?.score ? scoreToAdvice(overall.score) : null;
   console.log(`\n  综合研判: ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
   if (overall?.score) {
     console.log(`  ${scoreBar(overall.score)}`);
   }
+  if (advice) {
+    console.log(`  💡 ${advice.emoji} ${advice.action}`);
+  }
 
-  // 校准上下文
+  // 四维度一致性检查
+  const consistency = checkConsistency([
+    { name: '技术面', score: technical.score },
+    { name: '基本面', score: fundamental.score },
+    { name: '情绪面', score: sentiment.score },
+    { name: '基金面', score: fundAnalysis.valuation?.level === 'low' ? 70 : fundAnalysis.valuation?.level === 'high' ? 25 : 50 },
+  ]);
+  console.log(`  📊  ${consistencyEmoji(consistency.level)} 维度一致性: ${consistency.summary}`);
+
+  // 校准上下文（评分区间 + 可信度）
   if (overall?.calibration?.historicalAccuracy != null) {
     const cal = overall.calibration;
     const pct5 = Math.round(cal.historicalAccuracy! * 100);
     const pct20 = cal.historicalAccuracy20d != null ? Math.round(cal.historicalAccuracy20d * 100) : null;
     const t20 = pct20 != null ? `，20日${pct20}%` : '';
-    console.log(`  📊 校准参考: ${cal.scoreRange}区间 5日涨概率${pct5}%${t20} (${cal.systematicBias})`);
+    const sampleNote = (cal.sampleSize ?? 0) < 5
+      ? chalk.yellow(` ⚠️ 样本仅${cal.sampleSize}次，仅供参考`)
+      : (cal.sampleSize ?? 0) < 20
+        ? chalk.yellow(` (样本${cal.sampleSize}次，波动较大)`)
+        : '';
+    console.log(`  📊 校准: ${cal.scoreRange}区间 5日涨概率${pct5}%${t20} (${cal.systematicBias})${sampleNote}`);
     if (cal.calibrationApplied && cal.calibrationOffset != null && cal.calibrationOffset !== 0) {
       console.log(`  📐 数值校准: 反驳后${cal.rawScore}分 → 偏移${cal.calibrationOffset > 0 ? '+' : ''}${cal.calibrationOffset} → 展示${overall.score}分`);
     }
+  } else if (overall?.score) {
+    console.log(`  📊 校准: 样本积累中（需≥5次），评分仅供参考`);
   }
 
   // 情景分析
