@@ -5,6 +5,7 @@ import { getConfig } from '../utils/config.js';
 import { getDb } from '../db/index.js';
 import { SearchCacheRepo } from '../db/search-cache.js';
 import { SearchRouter } from '../data/search-router.js';
+import { fetchGoldLive, fetchDxyLive } from '../data/yahoo-live.js';
 import {
   crossValidate,
   checkFreshness,
@@ -84,10 +85,25 @@ export class ValidatorAgent extends BaseAgent {
     overallConfidence: number;
     warnings: string[];
   }> {
+    // 预取 Yahoo 实时数据作为 A 级锚定源（失败不影响流程）
+    const [yahooGold, yahooDxy] = await Promise.all([
+      fetchGoldLive().catch(() => null),
+      fetchDxyLive().catch(() => null),
+    ]);
+
     const validations: ValidationResult[] = [];
 
     if (data.london?.price?.value != null) {
       let sources = validationSourcesFromPrices(data.london.price, data.london.altPrices);
+      // 注入 Yahoo GC=F 作为 A 级锚定源
+      if (yahooGold) {
+        sources.unshift({
+          value: yahooGold.price,
+          source: 'Yahoo Finance GC=F',
+          grade: 'A',
+          timestamp: yahooGold.timestamp,
+        });
+      }
       if (needsSpotCheck(sources) && this.searchRouter.enabled) {
         const results = await this.searchRouter.searchBatch([
           { query: 'XAUUSD gold spot price Kitco Investing.com' },
@@ -122,12 +138,22 @@ export class ValidatorAgent extends BaseAgent {
     }
 
     if (data.dollarIndex?.value?.value != null) {
-      validations.push(crossValidate('dollarIndex.value', [{
+      const sources = [{
         value: data.dollarIndex.value.value,
         source: data.dollarIndex.value.source ?? 'unknown',
         grade: data.dollarIndex.value.sourceGrade ?? 'C',
         timestamp: data.dollarIndex.value.verifiedAt ?? '',
-      }]));
+      }];
+      // 注入 Yahoo DXY 作为 A 级锚定源
+      if (yahooDxy) {
+        sources.unshift({
+          value: yahooDxy.price,
+          source: 'Yahoo Finance DX-Y.NYB',
+          grade: 'A',
+          timestamp: yahooDxy.timestamp,
+        });
+      }
+      validations.push(crossValidate('dollarIndex.value', sources));
     }
 
     const warnings: string[] = [];
