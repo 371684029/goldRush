@@ -76,7 +76,7 @@ function trendFactor(closes: number[]): QuantFactorDetail {
 
 function rsiFactor(closes: number[]): QuantFactorDetail {
   const raw = latestRSI(closes, 14) ?? 50;
-  return { name:'RSI(14)', rawValue:Math.round(raw*10)/10, normalizedScore:clamp(raw,5,95), weight:w('rsi'), contribution:0 };
+  return { name:'RSI(14)', rawValue:Math.round(raw*100)/100, normalizedScore:Math.round(clamp(raw,5,95)), weight:w('rsi'), contribution:0 };
 }
 
 function macdFactor(closes: number[]): QuantFactorDetail {
