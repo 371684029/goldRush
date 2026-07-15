@@ -163,3 +163,59 @@ GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完
 | `history --type funds` | 展示 `fund_nav` 最新净值与近 1 周/1 月涨跌 |
 | 测试 | market-schema / spot-verify / overall-score / search-cache；**69** 用例 |
 
+---
+
+## 十、第六轮（数据质量事故：零价入库 → MA20 −100%）
+
+> 背景：2026-07-15 日报出现「伦敦金 $0」「偏离 MA20 −100%」「宏观/基本面数据真空」。根因是 LLM/占位把缺失写成 `0`，入库后 `forwardFillCloses` 当真价，指标与校准全部失真。另：生产机 Yahoo 出站超时，GLD/历史回填失败。
+
+### 根因
+
+| # | 问题 | 影响 |
+|---|------|------|
+| R1 | `parseMarketData` 缺失字段 → `value: 0, source: N/A` | 全链路把 0 当有效价 |
+| R2 | `saveSnapshot` / `upsert` 写入 0 并覆盖 | DB 出现 `london_close=0` 行 |
+| R3 | `forwardFillCloses` 把 0 当 last | MA 偏离 → −100%，宏观误判 oversold_repair |
+| R4 | `checkPriceConsistency` 对 0 算日波动 −100% | 置信度崩溃、告警噪音 |
+| R5 | Yahoo 在生产机超时 | 历史/GLD/DXY 锚定失效 |
+
+### 落地
+
+| 文件 | 改动 |
+|------|------|
+| `src/schemas/market.ts` | `isValidMarketNumber` / `isMissingPrice`；0 不视为有效报价 |
+| `src/db/gold-prices.ts` | upsert sanitize；读库 mapRow 将 0→null；有效列 COALESCE 不覆盖 |
+| `src/utils/price-series.ts` | forwardFill 跳过 ≤0 |
+| `src/utils/price-consistency.ts` | 金价缺失短路，避免 −100% 假警报 |
+| `src/utils/history-backfill.ts` / `ensure-gold-history.ts` | 0 视为缺失，参与回填统计 |
+| `src/data/live-anchors.ts` | **新** gold-api / 新浪 / LBMA / FRED 瀑布 |
+| `src/data/yahoo-live.ts` | Yahoo 短超时 + gold-api/新浪/FRED 回落 |
+| `src/data/yahoo-gold-history.ts` | Yahoo 失败 → LBMA 历史 |
+| `src/data/etf-grabber.ts` | fetch+curl 双通道；失败明确告警不写假吨数 |
+| `src/data/pboc-grabber.ts` | **新** 央行储备启发式解析 |
+| `src/utils/ensure-flows.ts` | 补齐 PBOC；flow 日志暴露 gld/pboc 错误 |
+| `src/agents/data-collector.ts` | `enrichWithLiveAnchors`；snapshot 拒 0 |
+| `src/agents/validator.ts` | 跳过 missing 价；锚定源标注 |
+| `test/live-anchors.test.ts` | 零值/forwardFill/PBOC 解析单测 |
+
+### 运维处置（生产）
+
+```sql
+-- 已执行：清除历史脏 0
+UPDATE gold_prices SET london_close=NULL WHERE london_close=0;
+-- 同类：shanghai / dxy / us10y / tips / etf_nav
+```
+
+### 验收（2026-07-15 现网）
+
+- `npm run build` 通过；相关 vitest **11** 通过  
+- 今日 `london_close≈4058`（非 0）；DXY/10Y 可被锚定写入  
+- CFTC 正常；**GLD / PBOC 仍可能为空**（出站源限制，中性 50，不编造）  
+- 完整 `analysis --md` 需在修复后**重跑**才更新当日日报叙事  
+
+### 文档
+
+- 新增 `docs/DATA-QUALITY.md`  
+- 更新 `README.md` 数据源表、`AGENTS.md` 硬规则与出站表、`docs/OPTIMIZATION.md` 状态  
+
+

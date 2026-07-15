@@ -152,13 +152,18 @@ Orchestrator (编排层)
 
 ### 数据源
 
-| 数据源 | 方式 | 频率 | 用途 |
-|--------|------|------|------|
-| Tavily 搜索 | LLM 提取 | 按需 | 金价/美元/美债/新闻 |
-| **Yahoo Finance** | **HTTP 直连 (零 LLM)** | 实时 | GC=F 金价锚定源 / DXY / 10Y |
-| **CFTC.gov** | **ZIP 下载 + 本地解析** | 周度 | COT 持仓报告 (黄金 088691) |
-| **SPDR** | **CSV 下载 + 本地解析** | 日度 | GLD ETF 持仓 (吨/变化/AUM) |
-| PBOC 官网 | 新闻搜索 | 月度 | 中国央行黄金储备 |
+| 数据源 | 方式 | 频率 | 用途 | 现网可达性（阿里云） |
+|--------|------|------|------|---------------------|
+| Tavily 搜索 | LLM 提取 | 按需 | 金价/美元/美债/新闻 | 需 `TAVILY_API_KEY` |
+| **Yahoo Finance** | HTTP 直连（零 LLM） | 实时/日线 | GC=F / DXY / 10Y / GLD 份额 | ⚠️ 部分机房超时，有瀑布回落 |
+| **gold-api.com** | HTTP 直连 | 实时 | XAU 现货锚定 | ✅ |
+| **新浪财经** | `hq.sinajs.cn` | 实时 | 纽约金 `hf_GC`、美元指数等 | ✅ |
+| **LBMA** | JSON 历史定盘 | 日度 | 金价历史回填（Yahoo 失败时） | ✅ |
+| **CFTC.gov** | ZIP + 本地解析 | 周度 | COT 持仓（黄金 088691） | ✅ |
+| **SPDR / Yahoo GLD** | CSV / quoteSummary | 日度 | GLD 持仓吨数 | ⚠️ 官网 SPA/Yahoo 常失败 |
+| PBOC / 公开页 | 启发式解析 | 月度 | 中国央行黄金储备 | ⚠️ 页面结构易变，可能为空 |
+
+**锚定瀑布（`src/data/live-anchors.ts` + `yahoo-live.ts`）**：Yahoo → gold-api / 新浪 / LBMA / FRED（FRED 在部分机房亦超时）。LLM 提取失败或为 0 时，用直连锚定补齐，**禁止把 0 当有效金价入库**。
 
 ### 主力动向监测 (`goldrush flow`)
 
@@ -174,11 +179,11 @@ Orchestrator (编排层)
 
 ### 信息可靠性
 
-1. **Yahoo A 级锚定源** — 直连数据作为交叉验证基准，不依赖 LLM 提取
-2. **来源分级** — A级(交易所/央行) > B级(财经媒体) > C级(自媒体)
-3. **3源交叉验证** — 同一数据至少3个独立来源
-4. **中英文双搜** — 避免单一信息茧房
-5. **反向核查** — 重大新闻必须搜反对观点
+1. **多源 A 级锚定** — Yahoo / gold-api / 新浪 / LBMA 直连，不依赖 LLM 编造
+2. **来源分级** — A级(交易所/央行/官方) > B级(财经媒体) > C级(自媒体)
+3. **3源交叉验证** — 同一数据尽量多源；单源标注 `single_source`
+4. **零值防线** — `parseMarketData` / `saveSnapshot` / `forwardFillCloses` 拒绝 `0` 与 `N/A` 污染历史
+5. **中英文双搜 + 反向核查** — 降低信息茧房与乐观偏差
 
 ### 强制反驳机制
 
@@ -278,14 +283,15 @@ node server.cjs
 
 ### 每日定时分析
 
-已在服务器设置每日 11:30 自动执行分析并生成 Markdown 报告（cron）：
+已在服务器设置每日自动执行分析并生成 Markdown 报告（cron，以服务器实际为准）：
 
 ```bash
 crontab -l
-# 30 11 * * * /root/git/goldRush/scripts/daily-analysis.sh
+# 现网示例（可能随运维调整）：
+# 0 10 * * * cd /root/git/goldRush && ./scripts/daily-analysis.sh >> logs/cron.log 2>&1
 ```
 
-日志文件在 `logs/daily-YYYY-MM-DD.log`，报告自动保存到 `docs/` 目录，同步产出分析日报 + 主力监测日报。
+日志在 `logs/daily-YYYY-MM-DD.log` / `logs/cron.log`，报告写入 `docs/`（分析日报 + 主力监测日报）。
 
 ---
 
@@ -346,10 +352,12 @@ goldRush/
 │   │   ├── rebuttal.ts       # 强制反驳 Agent
 │   │   └── orchestrator.ts   # 综合编排 Agent
 │   ├── data/
-│   │   ├── yahoo-live.ts     # [新] Yahoo 实时价格 (GC=F/DXY/10Y)
-│   │   ├── yahoo-gold-history.ts # Yahoo 历史金价
-│   │   ├── cftc-grabber.ts   # [新] CFTC COT 报告采集
-│   │   ├── etf-grabber.ts    # [新] GLD ETF 持仓采集
+│   │   ├── live-anchors.ts   # 多源实时锚定 (gold-api/新浪/LBMA/FRED)
+│   │   ├── yahoo-live.ts     # Yahoo 实时价 + 锚定回落
+│   │   ├── yahoo-gold-history.ts # Yahoo 日线 + LBMA 历史回落
+│   │   ├── cftc-grabber.ts   # CFTC COT 报告采集
+│   │   ├── etf-grabber.ts    # GLD ETF 持仓（Yahoo 双通道）
+│   │   ├── pboc-grabber.ts   # 央行储备启发式解析
 │   │   ├── search-router.ts  # Tavily 搜索封装及路由
 │   │   └── tavily-client.ts  # Tavily API 客户端
 │   ├── db/
@@ -424,10 +432,13 @@ npm test
 |------|------|
 | [FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
 | [OPTIMIZATION.md](./docs/OPTIMIZATION.md) | **优化路线图**（真实性、覆盖度、实时性、可靠性、交互） |
+| [DATA-QUALITY.md](./docs/DATA-QUALITY.md) | **数据质量事故与防线**（零价/MA20/锚定瀑布） |
 | [PLAN.md](./PLAN.md) | 完整项目规划 |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录 |
 | [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率改进规范 |
 | [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论深度分析 |
+| [IMPROVEMENTS.md](./IMPROVEMENTS.md) | 多轮体检与修复存档 |
+| [AGENTS.md](./AGENTS.md) | 开发/运维约定（给 Agent 与人） |
 
 ---
 
@@ -435,7 +446,8 @@ npm test
 
 - 本工具仅供投资研究参考，**不构成投资建议**
 - LLM 分析存在固有局限，请结合自身判断做出决策
-- 数据依赖搜索结果及外部 API，可能存在延迟或偏差
-- 建议积累 20 天以上数据后再使用 `calibrate` 命令
-- Tavily API 免费额度 1000 次/月
-- 主力数据（CFTC/GLD）首次使用需运行 `goldrush flow --init` 回填历史
+- 数据依赖搜索结果及外部 API，可能存在延迟或偏差；**报告中的「数据置信度」与校验警告需优先阅读**
+- 若技术面/基本面出现「价格为 0 / 数据真空」，多为采集失败：检查 opencode、Tavily、出站网络，或看 `docs/DATA-QUALITY.md`
+- 建议积累 20 天以上**有效**金价后再使用 `calibrate` 命令（库内 `london_close=0` 已按缺失处理）
+- Tavily API 免费额度约 1000 次/月
+- 主力数据：CFTC 首次可 `goldrush flow --init`；GLD/PBOC 受出站源限制时评分会回落中性 50，不编造持仓
