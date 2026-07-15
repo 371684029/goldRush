@@ -7,6 +7,34 @@ import type { GoldAnalysisReport } from '../types/analysis.js';
 import type { Direction } from '../types/analysis.js';
 import type { CalibrationBucket, CalibrationReport, RiskAlertQuality } from '../types/calibration.js';
 import { SCORE_BUCKETS, scoreBucketRange } from '../utils/score-buckets.js';
+import {
+  DUAL_CONFLICT_THRESHOLD,
+  emptyDualTrackHitStats,
+  predictDirectionFromScore,
+  type DualTrackHitStats,
+} from '../utils/dual-score.js';
+
+/** 有效金价：>0 才参与校准（排除脏 0 / 缺失） */
+function validClose(v: number | null | undefined): v is number {
+  return v != null && Number.isFinite(v) && v > 0;
+}
+
+/** 报告 JSON 标记数据红档则排除（健全双打分：坏样本不进准确率） */
+function isReportDataRed(reportJson: string): boolean {
+  try {
+    const j = JSON.parse(reportJson) as {
+      dataQuality?: { overallConfidence?: number; warnings?: string[] };
+    };
+    const conf = j.dataQuality?.overallConfidence;
+    if (conf != null && conf < 35) return true;
+    const ws = j.dataQuality?.warnings ?? [];
+    return ws.some(w =>
+      /操作结论已关闭|数据不合格|数据门禁.*红|请勿据此加减仓/.test(w),
+    );
+  } catch {
+    return false;
+  }
+}
 
 export class CalibrationRepo {
   private reports: ReportsRepo;
@@ -53,9 +81,65 @@ export class CalibrationRepo {
     return filled;
   }
 
-  /** 计算校准报告 */
+  /** 过滤：有效金价 + 非数据红档 */
+  private eligibleReports(days: number): AnalysisReportRow[] {
+    return this.reports.getRecent(days).filter(r => {
+      if (isReportDataRed(r.reportJson)) return false;
+      const p = this.prices.getByDate(r.date);
+      return validClose(p?.londonClose ?? null);
+    });
+  }
+
+  /** 双打分方向命中与冲突日统计（5 日标签） */
+  computeDualTrackHitStats(days: number, T: number = 5): DualTrackHitStats {
+    const stats = emptyDualTrackHitStats();
+    const reports = this.eligibleReports(days);
+
+    for (const report of reports) {
+      const currentPrice = this.prices.getByDate(report.date);
+      const futurePrices = this.prices.getAfter(report.date, T)
+        .filter(p => validClose(p.londonClose));
+      const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : futurePrices[futurePrices.length - 1];
+      if (!validClose(currentPrice?.londonClose) || !validClose(futurePrice?.londonClose)) continue;
+
+      const futureReturn =
+        (futurePrice.londonClose - currentPrice!.londonClose!) / currentPrice!.londonClose! * 100;
+      const actualUp = futureReturn > 0.1;
+      const actualDown = futureReturn < -0.1;
+      if (!actualUp && !actualDown) continue; // flat 不计入方向命中
+
+      const llmPred = predictDirectionFromScore(report.overallScore);
+      if (llmPred) {
+        stats.llmTotal++;
+        if ((llmPred === 'up' && actualUp) || (llmPred === 'down' && actualDown)) stats.llmHits++;
+      }
+
+      if (report.quantScore != null) {
+        const qPred = predictDirectionFromScore(report.quantScore);
+        if (qPred) {
+          stats.quantTotal++;
+          if ((qPred === 'up' && actualUp) || (qPred === 'down' && actualDown)) stats.quantHits++;
+        }
+
+        const abs = Math.abs(report.overallScore - report.quantScore);
+        if (abs > DUAL_CONFLICT_THRESHOLD && llmPred && qPred) {
+          stats.conflictDays++;
+          if ((qPred === 'up' && actualUp) || (qPred === 'down' && actualDown)) {
+            stats.conflictFollowQuantHits++;
+          }
+          if ((llmPred === 'up' && actualUp) || (llmPred === 'down' && actualDown)) {
+            stats.conflictFollowLlmHits++;
+          }
+        }
+      }
+    }
+    return stats;
+  }
+
+  /** 计算校准报告（LLM overall_score；排除红档/无效价） */
   computeCalibration(days: number, T: number = 5): CalibrationReport {
-    const reports = this.reports.getRecent(days);
+    const allRecent = this.reports.getRecent(days);
+    const reports = this.eligibleReports(days);
     const dateRange = reports.length > 0
       ? { from: reports[reports.length - 1].date, to: reports[0].date }
       : { from: 'N/A', to: 'N/A' };
@@ -74,12 +158,12 @@ export class CalibrationRepo {
 
       for (const report of matching) {
         const currentPrice = this.prices.getByDate(report.date);
-        const futurePrices = this.prices.getAfter(report.date, T);
+        const futurePrices = this.prices.getAfter(report.date, T).filter(p => validClose(p.londonClose));
         const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : null;
 
-        if (!currentPrice?.londonClose || !futurePrice?.londonClose) continue;
+        if (!validClose(currentPrice?.londonClose) || !validClose(futurePrice?.londonClose)) continue;
 
-        const futureReturn = (futurePrice.londonClose - currentPrice.londonClose) / currentPrice.londonClose * 100;
+        const futureReturn = (futurePrice.londonClose - currentPrice!.londonClose!) / currentPrice!.londonClose! * 100;
         if (futureReturn > 0) upCount++;
         totalReturn += futureReturn;
         validCount++;
@@ -129,6 +213,11 @@ export class CalibrationRepo {
       recommendations.push('校准状态良好，继续保持');
     }
 
+    const excluded = allRecent.length - reports.length;
+    if (excluded > 0) {
+      recommendations.push(`已排除 ${excluded} 条样本（数据红档或无效金价），不计入 LLM 校准`);
+    }
+
     return {
       period: { days, ...dateRange },
       totalReports: reports.length,
@@ -142,7 +231,7 @@ export class CalibrationRepo {
 
   /** 计算量化评分校准报告（使用 quant_score 而非 overall_score） */
   computeQuantCalibration(days: number, T: number = 5): CalibrationReport {
-    const reports = this.reports.getRecent(days);
+    const reports = this.eligibleReports(days);
     const dateRange = reports.length > 0
       ? { from: reports[reports.length - 1].date, to: reports[0].date }
       : { from: 'N/A', to: 'N/A' };
@@ -163,12 +252,12 @@ export class CalibrationRepo {
 
       for (const report of matching) {
         const currentPrice = this.prices.getByDate(report.date);
-        const futurePrices = this.prices.getAfter(report.date, T);
+        const futurePrices = this.prices.getAfter(report.date, T).filter(p => validClose(p.londonClose));
         const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : null;
 
-        if (!currentPrice?.londonClose || !futurePrice?.londonClose) continue;
+        if (!validClose(currentPrice?.londonClose) || !validClose(futurePrice?.londonClose)) continue;
 
-        const futureReturn = (futurePrice.londonClose - currentPrice.londonClose) / currentPrice.londonClose * 100;
+        const futureReturn = (futurePrice.londonClose - currentPrice!.londonClose!) / currentPrice!.londonClose! * 100;
         if (futureReturn > 0) upCount++;
         totalReturn += futureReturn;
         validCount++;
@@ -209,7 +298,7 @@ export class CalibrationRepo {
     const recommendations: string[] = [];
     const optimisticBuckets = buckets.filter(b => b.systematicBias === 'optimistic' && b.calibrationError > 10);
     if (optimisticBuckets.length > 0) {
-      recommendations.push(`量化评分区间 ${optimisticBuckets.map(b => b.scoreRange).join('/')} 严重偏乐观，建议prompt中增加谨慎修正`);
+      recommendations.push(`量化评分区间 ${optimisticBuckets.map(b => b.scoreRange).join('/')} 严重偏乐观，检查因子权重（勿抬 event_heat）`);
     }
     if (riskAlertQuality.missedRate > 0.25) {
       recommendations.push(`漏报率 ${Math.round(riskAlertQuality.missedRate * 100)}%，建议增强反驳Agent强度`);
