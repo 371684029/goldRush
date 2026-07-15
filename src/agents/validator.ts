@@ -11,6 +11,7 @@ import {
   crossValidate,
   checkFreshness,
   validationSourcesFromPrices,
+  weightedFieldConfidence,
 } from '../utils/source-rank.js';
 import {
   extractLondonPricesFromSearch,
@@ -19,6 +20,7 @@ import {
   needsSpotCheck,
 } from '../utils/spot-verify.js';
 import type { MarketData, ValidationResult } from '../types/market.js';
+import { isValidMarketNumber, isMissingPrice } from '../schemas/market.js';
 
 const VALIDATION_SYSTEM_PROMPT = `你是黄金市场数据验证专家。你的任务是验证采集到的市场数据的准确性和时效性。
 
@@ -85,6 +87,8 @@ export class ValidatorAgent extends BaseAgent {
     validations: ValidationResult[];
     overallConfidence: number;
     warnings: string[];
+    /** 直连锚定金价（用于数据质量门禁） */
+    anchorGoldPrice: number | null;
   }> {
     // 预取 Yahoo 实时数据作为 A 级锚定源（失败不影响流程）
     const [yahooGold, yahooDxy] = await Promise.all([
@@ -94,13 +98,13 @@ export class ValidatorAgent extends BaseAgent {
 
     const validations: ValidationResult[] = [];
 
-    if (data.london?.price?.value != null) {
+    if (!isMissingPrice(data.london?.price) && isValidMarketNumber(data.london?.price?.value)) {
       let sources = validationSourcesFromPrices(data.london.price, data.london.altPrices);
-      // 注入 Yahoo GC=F 作为 A 级锚定源
+      // 注入 Yahoo GC=F / gold-api 作为 A 级锚定源
       if (yahooGold) {
         sources.unshift({
           value: yahooGold.price,
-          source: 'Yahoo Finance GC=F',
+          source: yahooGold.symbol === 'XAU' ? 'gold-api.com XAU' : 'Yahoo Finance GC=F',
           grade: 'A',
           timestamp: yahooGold.timestamp,
         });
@@ -116,7 +120,7 @@ export class ValidatorAgent extends BaseAgent {
       validations.push(crossValidate('london.price', sources));
     }
 
-    if (data.shanghai?.price?.value != null) {
+    if (!isMissingPrice(data.shanghai?.price) && isValidMarketNumber(data.shanghai?.price?.value)) {
       let sources = validationSourcesFromPrices(data.shanghai.price, data.shanghai.altPrices);
       if (needsSpotCheck(sources) && this.searchRouter.enabled) {
         const results = await this.searchRouter.searchBatch([
@@ -129,7 +133,7 @@ export class ValidatorAgent extends BaseAgent {
       validations.push(crossValidate('shanghai.price', sources));
     }
 
-    if (data.etf?.nav?.value != null) {
+    if (!isMissingPrice(data.etf?.nav) && isValidMarketNumber(data.etf?.nav?.value)) {
       validations.push(crossValidate('etf.nav', [{
         value: data.etf.nav.value,
         source: data.etf.nav.source ?? 'unknown',
@@ -138,18 +142,18 @@ export class ValidatorAgent extends BaseAgent {
       }]));
     }
 
-    if (data.dollarIndex?.value?.value != null) {
+    if (!isMissingPrice(data.dollarIndex?.value) && isValidMarketNumber(data.dollarIndex?.value?.value)) {
       const sources = [{
         value: data.dollarIndex.value.value,
         source: data.dollarIndex.value.source ?? 'unknown',
         grade: data.dollarIndex.value.sourceGrade ?? 'C',
         timestamp: data.dollarIndex.value.verifiedAt ?? '',
       }];
-      // 注入 Yahoo DXY 作为 A 级锚定源
+      // 注入 Yahoo DXY / FRED 作为 A 级锚定源
       if (yahooDxy) {
         sources.unshift({
           value: yahooDxy.price,
-          source: 'Yahoo Finance DX-Y.NYB',
+          source: yahooDxy.symbol?.includes('DTWEX') ? 'FRED DTWEXBGS' : 'Yahoo Finance DX-Y.NYB',
           grade: 'A',
           timestamp: yahooDxy.timestamp,
         });
@@ -234,24 +238,35 @@ export class ValidatorAgent extends BaseAgent {
       }
     }
 
-    const baseLocalConfidence = validations.length > 0
-      ? Math.round(validations.reduce((sum, v) => sum + v.confidence, 0) / validations.length)
-      : 50;
+    // 伦敦金 50% + 其余字段 50%，避免可选字段单源拖死总分
+    const baseLocalConfidence = weightedFieldConfidence(validations);
 
     // 注入价格一致性校验奖励分（三合一：跨市场/Yahoo锚定/历史连续）
     const consistencyBonus = consistency?.bonusConfidence ?? 0;
     const localConfidence = Math.max(10, Math.min(95, baseLocalConfidence + consistencyBonus));
+
+    // 锚定一致时降低 LLM 自评权重（0.2），避免「数对但 LLM 嘴严」压分
+    const anchorAligned = consistency?.details.yahooAnchor.passed === true
+      || (yahooGold != null && data.london?.price?.value != null
+        && Math.abs(data.london.price.value - yahooGold.price) / yahooGold.price < 0.01);
 
     let overallConfidence: number;
     if (llmAssessment) {
       const llmConf = typeof llmAssessment.llmConfidence === 'number' && !Number.isNaN(llmAssessment.llmConfidence)
         ? llmAssessment.llmConfidence
         : 50;
-      overallConfidence = Math.round(localConfidence * 0.6 + llmConf * 0.4);
+      const llmW = anchorAligned ? 0.2 : 0.4;
+      const localW = 1 - llmW;
+      overallConfidence = Math.round(localConfidence * localW + llmConf * llmW);
     } else {
       overallConfidence = localConfidence;
     }
 
-    return { validations, overallConfidence, warnings };
+    return {
+      validations,
+      overallConfidence,
+      warnings,
+      anchorGoldPrice: yahooGold?.price ?? null,
+    };
   }
 }

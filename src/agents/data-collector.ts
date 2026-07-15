@@ -12,7 +12,9 @@ import { listMissingLondonDates, normalizeHistoryRows, type HistoryPriceRow } fr
 import { ensureGoldPriceHistory } from '../utils/ensure-gold-history.js';
 import { TRACKED_FUNDS } from '../types/fund.js';
 import type { MarketData, SearchResult } from '../types/market.js';
-import { parseMarketData } from '../schemas/market.js';
+import { parseMarketData, isMissingPrice, isValidMarketNumber } from '../schemas/market.js';
+import { fetchLiveAnchors, type LiveAnchorPrice } from '../data/live-anchors.js';
+import type { SourcedPrice } from '../types/market.js';
 
 const PRICE_COLLECT_PROMPT = `你是黄金市场数据采集专家。你的任务是从搜索结果中提取结构化的金价数据。
 
@@ -106,8 +108,16 @@ export class DataCollectorAgent extends BaseAgent {
     this.searchRouter = new SearchRouter(config.search.tavilyApiKey, { cache });
   }
 
-  /** 采集市场数据 */
+  /**
+   * 采集市场数据 — **先锚定、后搜索**。
+   * 1) 直连 gold-api/新浪/FRED 等（短超时并行）保证金价成功率
+   * 2) Tavily+LLM 补上海/ETF/叙事；失败不拖垮已有锚定
+   * 3) 再 merge 一次锚定（补洞 + 交叉验证 alt）
+   */
   async collectMarketData(): Promise<MarketData> {
+    console.log('  ⚓ Step 1a: 直连锚定（优先，不依赖 LLM）...');
+    let data = await this.buildSkeletonFromAnchors();
+
     const year = new Date().getFullYear();
     const searches = [
       { query: `gold price XAUUSD spot today ${year}`, dataType: 'xauusd' },
@@ -120,12 +130,181 @@ export class DataCollectorAgent extends BaseAgent {
       { query: `US 10 year treasury yield TIPS real yield today`, dataType: 'us10y' },
     ];
 
-    const searchResults = await this.searchRouter.searchBatch(searches, { numResults: 3 });
-    const data = await this.extractMarketDataFromSearch(searchResults);
+    try {
+      console.log('  🔎 Step 1b: 搜索 + LLM 补全（上海/ETF/叙事）...');
+      const searchResults = await this.searchRouter.searchBatch(searches, { numResults: 3 });
+      const totalResults = Array.from(searchResults.values()).reduce((n, arr) => n + arr.length, 0);
+      if (totalResults > 0) {
+        const llmData = await this.extractMarketDataFromSearch(searchResults);
+        data = this.mergeMarketData(llmData, data);
+      } else {
+        console.warn('  ⚠️ 搜索结果为空，保留直连锚定数据（不调用 LLM 抽价）');
+      }
+    } catch (err) {
+      console.warn('  ⚠️ 搜索/LLM 采集失败，保留锚定数据:', err instanceof Error ? err.message : err);
+    }
+
+    // 补洞 + 把锚定价加入 altPrices 供交叉验证
+    data = await this.enrichWithLiveAnchors(data);
+
+    if (isMissingPrice(data.london?.price)) {
+      throw new Error(
+        '金价锚定与搜索均未拿到有效伦敦金。请检查网络（gold-api/新浪）与 TAVILY_API_KEY；为避免编造数据已中止。',
+      );
+    }
+
     try {
       this.saveSnapshot(data);
     } catch (err) {
       console.error('保存快照失败:', err);
+    }
+    return data;
+  }
+
+  /** 仅用直连源构造 MarketData 骨架（可部分字段缺失） */
+  private async buildSkeletonFromAnchors(): Promise<MarketData> {
+    const now = new Date().toISOString();
+    const empty = (): SourcedPrice => ({
+      value: 0, change: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: now,
+    });
+    let data: MarketData = {
+      timestamp: now,
+      london: { price: empty(), altPrices: [] },
+      shanghai: { price: empty(), altPrices: [] },
+      etf: { code: '518880', name: '华安黄金ETF', nav: empty() },
+      dollarIndex: { value: empty() },
+      usTreasury: {
+        yield10y: empty(),
+        tips: { value: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: now },
+      },
+    };
+    return this.enrichWithLiveAnchors(data);
+  }
+
+  /**
+   * 合并：prefer 优先用 primary 的有效字段，缺失则用 fallback（锚定）。
+   * 金价：两边都有效时，primary 作主价，fallback 进 altPrices。
+   */
+  private mergeMarketData(primary: MarketData, fallback: MarketData): MarketData {
+    const pickPrice = (a?: SourcedPrice, b?: SourcedPrice): SourcedPrice => {
+      if (a && !isMissingPrice(a)) return a;
+      if (b && !isMissingPrice(b)) return b;
+      return a ?? b ?? {
+        value: 0, change: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: new Date().toISOString(),
+      };
+    };
+
+    const londonPrimary = primary.london?.price;
+    const londonFb = fallback.london?.price;
+    const london = pickPrice(londonPrimary, londonFb);
+    const alts: SourcedPrice[] = [...(primary.london?.altPrices ?? [])];
+    if (
+      londonFb && !isMissingPrice(londonFb)
+      && londonPrimary && !isMissingPrice(londonPrimary)
+      && londonFb.value !== londonPrimary.value
+    ) {
+      alts.push(londonFb);
+    }
+    for (const a of fallback.london?.altPrices ?? []) {
+      if (!isMissingPrice(a)) alts.push(a);
+    }
+
+    return {
+      timestamp: primary.timestamp || fallback.timestamp,
+      london: {
+        ...primary.london,
+        price: london,
+        altPrices: alts.slice(0, 3),
+        high: primary.london?.high ?? fallback.london?.high,
+        low: primary.london?.low ?? fallback.london?.low,
+      },
+      shanghai: {
+        ...primary.shanghai,
+        price: pickPrice(primary.shanghai?.price, fallback.shanghai?.price),
+        altPrices: primary.shanghai?.altPrices?.length
+          ? primary.shanghai.altPrices
+          : (fallback.shanghai?.altPrices ?? []),
+      },
+      etf: {
+        ...primary.etf,
+        code: primary.etf?.code ?? fallback.etf?.code ?? '518880',
+        name: primary.etf?.name ?? fallback.etf?.name ?? '华安黄金ETF',
+        nav: pickPrice(primary.etf?.nav, fallback.etf?.nav),
+      },
+      dollarIndex: {
+        value: pickPrice(primary.dollarIndex?.value, fallback.dollarIndex?.value),
+      },
+      usTreasury: {
+        yield10y: pickPrice(primary.usTreasury?.yield10y, fallback.usTreasury?.yield10y),
+        tips: (() => {
+          const t = primary.usTreasury?.tips;
+          const f = fallback.usTreasury?.tips;
+          if (t && t.source !== 'N/A' && isValidMarketNumber(t.value)) return t;
+          if (f && f.source !== 'N/A' && isValidMarketNumber(f.value)) return f;
+          return t ?? f ?? { value: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: '' };
+        })(),
+      },
+    };
+  }
+
+  /** 用直连锚定源覆盖 N/A 或 0 占位，不覆盖已有有效 LLM/搜索提取 */
+  private async enrichWithLiveAnchors(data: MarketData): Promise<MarketData> {
+    try {
+      const anchors = await fetchLiveAnchors();
+      const now = new Date().toISOString();
+
+      const toPrice = (a: LiveAnchorPrice, grade: 'A' | 'B' = 'A'): SourcedPrice => ({
+        value: a.price,
+        change: a.change,
+        source: a.source,
+        sourceGrade: grade,
+        verifiedAt: a.timestamp || now,
+      });
+
+      if (anchors.gold && isMissingPrice(data.london?.price)) {
+        data.london = {
+          ...data.london,
+          price: toPrice(anchors.gold),
+          altPrices: data.london?.altPrices ?? [],
+        };
+        console.log(`  ⚓ 金价锚定: $${anchors.gold.price} (${anchors.gold.source})`);
+      } else if (anchors.gold && data.london?.price && isValidMarketNumber(data.london.price.value)) {
+        // 已有报价时把锚定源加入 altPrices 供交叉验证
+        const alts = data.london.altPrices ?? [];
+        const exists = alts.some(a => a.source === anchors.gold!.source);
+        if (!exists) alts.push(toPrice(anchors.gold));
+        data.london.altPrices = alts.slice(0, 3);
+      }
+
+      if (anchors.dxy && isMissingPrice(data.dollarIndex?.value)) {
+        data.dollarIndex = { value: toPrice(anchors.dxy) };
+        console.log(`  ⚓ 美元指数锚定: ${anchors.dxy.price} (${anchors.dxy.source})`);
+      }
+
+      if (anchors.us10y && isMissingPrice(data.usTreasury?.yield10y)) {
+        data.usTreasury = {
+          ...data.usTreasury,
+          yield10y: toPrice(anchors.us10y),
+          tips: data.usTreasury?.tips ?? { value: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: now },
+        };
+        console.log(`  ⚓ 10Y 锚定: ${anchors.us10y.price}% (${anchors.us10y.source})`);
+      }
+
+      if (anchors.tips && (data.usTreasury?.tips?.source === 'N/A' || !isValidMarketNumber(data.usTreasury?.tips?.value))) {
+        data.usTreasury = {
+          ...data.usTreasury,
+          yield10y: data.usTreasury?.yield10y ?? { value: 0, change: 0, source: 'N/A', sourceGrade: 'C', verifiedAt: now },
+          tips: {
+            value: anchors.tips.price,
+            source: anchors.tips.source,
+            sourceGrade: 'A',
+            verifiedAt: anchors.tips.timestamp || now,
+          },
+        };
+        console.log(`  ⚓ TIPS 锚定: ${anchors.tips.price}% (${anchors.tips.source})`);
+      }
+    } catch (err) {
+      console.warn('  ⚠️ 实时锚定补齐失败:', err instanceof Error ? err.message : err);
     }
     return data;
   }
@@ -291,28 +470,36 @@ export class DataCollectorAgent extends BaseAgent {
     return parseMarketData(raw);
   }
 
-  /** 保存金价快照 + ETF 净值 */
+  /** 保存金价快照 + ETF 净值（缺失/0 不入库，避免污染历史） */
   private saveSnapshot(data: MarketData): void {
     const db = getDb();
     const date = todayDate();
     const repo = new GoldPricesRepo(db);
 
+    const numOrNull = (p: { value?: number; source?: string } | null | undefined): number | null => {
+      if (!p || p.source === 'N/A') return null;
+      if (p.value == null || !Number.isFinite(p.value) || p.value === 0) return null;
+      return p.value;
+    };
+
     repo.upsert({
       date,
-      londonClose: data.london?.price?.value ?? null,
-      londonHigh: data.london?.high?.value ?? null,
-      londonLow: data.london?.low?.value ?? null,
-      shanghaiClose: data.shanghai?.price?.value ?? null,
-      shanghaiHigh: data.shanghai?.high?.value ?? null,
-      shanghaiLow: data.shanghai?.low?.value ?? null,
-      etfNav: data.etf?.nav?.value ?? null,
-      etfChange: data.etf?.nav?.change ?? null,
-      dollarIndex: data.dollarIndex?.value?.source !== 'N/A' ? (data.dollarIndex?.value?.value ?? null) : null,
-      us10yYield: data.usTreasury?.yield10y?.source !== 'N/A' ? (data.usTreasury?.yield10y?.value ?? null) : null,
-      tipsYield: data.usTreasury?.tips?.source !== 'N/A' ? (data.usTreasury?.tips?.value ?? null) : null,
+      londonClose: numOrNull(data.london?.price),
+      londonHigh: numOrNull(data.london?.high),
+      londonLow: numOrNull(data.london?.low),
+      shanghaiClose: numOrNull(data.shanghai?.price),
+      shanghaiHigh: numOrNull(data.shanghai?.high),
+      shanghaiLow: numOrNull(data.shanghai?.low),
+      etfNav: numOrNull(data.etf?.nav),
+      etfChange: !isMissingPrice(data.etf?.nav) ? (data.etf?.nav?.change ?? null) : null,
+      dollarIndex: numOrNull(data.dollarIndex?.value),
+      us10yYield: numOrNull(data.usTreasury?.yield10y),
+      tipsYield: data.usTreasury?.tips?.source !== 'N/A' && isValidMarketNumber(data.usTreasury?.tips?.value)
+        ? data.usTreasury!.tips!.value
+        : null,
     });
 
-    if (data.etf?.nav?.value != null) {
+    if (!isMissingPrice(data.etf?.nav) && data.etf?.nav?.value != null) {
       const fundRepo = new FundNavRepo(db);
       fundRepo.upsert({
         date,
