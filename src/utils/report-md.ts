@@ -19,6 +19,9 @@ import type { PatternMatch } from '../types/calibration.js';
 import type { ScoreBreakdown } from './score-breakdown.js';
 import type { DataQualityGate } from './data-quality-gate.js';
 import { formatDataQualityGateMarkdown, nonActionableAdvice } from './data-quality-gate.js';
+import type { DualScoreVerdict } from './dual-score.js';
+import { formatDualScoreMarkdown } from './dual-score.js';
+import { formatQuantScoreMarkdown } from '../indicators/quant-score.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -27,6 +30,7 @@ export interface ReportMarkdownExtras {
   scoreBreakdown?: ScoreBreakdown;
   longTermOutlook?: LongTermOutlook;
   dataQualityGate?: DataQualityGate;
+  dualVerdict?: DualScoreVerdict;
 }
 
 function dirText(d: string | undefined): string {
@@ -70,6 +74,22 @@ export function formatReportMarkdown(
     lines.push(formatDataQualityGateMarkdown(dq));
   }
 
+  const dual = extras?.dualVerdict;
+  if (dual) {
+    lines.push(formatDualScoreMarkdown(dual));
+  } else if (overall?.quantScore != null) {
+    // 无 verdict 时仍展示双分摘要
+    const d = (overall.score ?? 0) - overall.quantScore;
+    lines.push('## ⚖️ 双打分机制（LLM × 量化）');
+    lines.push('');
+    lines.push(`- LLM：**${na(overall.score)}/100** · 量化：**${overall.quantScore}/100** · 偏差：${d > 0 ? '+' : ''}${d}`);
+    lines.push('');
+  }
+
+  if (overall?.quantFactors) {
+    lines.push(formatQuantScoreMarkdown(overall.quantFactors, overall.quantScore));
+  }
+
   const macro = extras?.macroRegime;
   if (macro) {
     lines.push('## 🌐 宏观阶段');
@@ -88,8 +108,11 @@ export function formatReportMarkdown(
   lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
   if (dq && !dq.actionable) {
     const naAdvice = nonActionableAdvice();
-    lines.push(`- ⛔ **操作结论已关闭**：${naAdvice.headline}`);
+    lines.push(`- ⛔ **操作结论已关闭（数据门禁）**：${naAdvice.headline}`);
     lines.push(`- 建议：${naAdvice.action}`);
+  } else if (dual?.actionOverride) {
+    lines.push(`- ⚖️ **操作弃权（双打分冲突）**：${dual.actionOverride.headline}`);
+    lines.push(`- 建议：${dual.actionOverride.action}`);
   } else if (dq?.tier === 'yellow') {
     lines.push('- ⚠️ **降级可用**：建议结合量化分、CFTC 主力与置信度阅读操作建议');
   }

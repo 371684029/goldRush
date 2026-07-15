@@ -138,6 +138,50 @@ function extractDataConfidence(md) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/** 双打分：从 MD 解析 LLM/量化/策略 */
+function extractDualScore(md) {
+  const quant = extractQuantScore(md);
+  const scoreInfo = extractScore(md);
+  if (!scoreInfo) return null;
+  const llm = scoreInfo.score;
+  const q = quant?.quantScore ?? null;
+  let policy = 'both';
+  let conflict = false;
+  if (/操作弃权|双体系不一致|hold_on_conflict/.test(md)) {
+    policy = 'hold_on_conflict';
+    conflict = true;
+  } else if (q != null && Math.abs(llm - q) > 15) {
+    policy = 'hold_on_conflict';
+    conflict = true;
+  } else if (q != null && Math.abs(llm - q) > 8) {
+    policy = 'quant_preferred';
+  }
+  return {
+    llm,
+    quant: q,
+    delta: q != null ? llm - q : null,
+    policy,
+    conflict,
+  };
+}
+
+function renderDualScoreBanner(dual) {
+  if (!dual || dual.quant == null) return '';
+  const d = dual.delta;
+  const dStr = d == null ? '—' : (d > 0 ? `+${d}` : String(d));
+  const cls = dual.conflict ? 'dual-conflict' : Math.abs(d || 0) > 8 ? 'dual-mild' : 'dual-ok';
+  const policyLabel = dual.conflict
+    ? '操作弃权 · 维持定投'
+    : dual.policy === 'quant_preferred'
+      ? '同向微偏 · 叙事LLM / 结构向量化'
+      : '双分一致';
+  return `<div class="dual-banner ${cls}" role="status">
+    <div class="dual-title">⚖️ 双打分 · LLM ${dual.llm} · 量化 ${dual.quant} · 偏差 ${esc(dStr)}</div>
+    <div class="dual-policy">${esc(policyLabel)}</div>
+    <div class="dual-note">两套分数独立校准；冲突时不站队抬权重</div>
+  </div>`;
+}
+
 /**
  * 数据质量门禁（与 CLI data-quality-gate 对齐）
  * 优先解析 MD 中的「数据质量门禁」小节；旧报告按置信度推断。
@@ -551,6 +595,7 @@ function renderPredictionDashboard(meta) {
 
   return `<section class="pred-dashboard" aria-label="预测结论">
     ${renderQualityBanner(qualityGate)}
+    ${renderDualScoreBanner(meta.dualScore)}
     ${renderSampleWarn(calibration)}
     <div class="pred-hero ${qualityGate && !qualityGate.actionable ? 'pred-hero-blocked' : ''}" style="--pred-color:${advice.color}">
       <div class="pred-score-col">
@@ -1124,10 +1169,21 @@ function renderArticle(mdFilename, rawMarkdown) {
   const calibration = extractCalibration(rawMarkdown);
   const confidence = extractDataConfidence(rawMarkdown);
   const qualityGate = extractDataQualityGate(rawMarkdown);
+  const dualScore = extractDualScore(rawMarkdown);
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
   const quantInfo = extractQuantScore(rawMarkdown);
-  const advice = resolveAdvice(scoreInfo, qualityGate);
+  let advice = resolveAdvice(scoreInfo, qualityGate);
+  if (advice && dualScore?.conflict && qualityGate?.actionable !== false) {
+    advice = {
+      label: '双分冲突·弃权',
+      headline: '双体系不一致，操作弃权',
+      action: '维持基础定投，按日历执行；待双分同向或校准明确后再加减仓',
+      color: '#94a3b8',
+      bg: '#33415544',
+      emoji: '⚖️',
+    };
+  }
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({
@@ -1138,7 +1194,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   const flowDashboardHtml = kind === 'flow' ? renderFlowDashboard(rawMarkdown) : '';
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
-    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate,
+    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate, dualScore,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;
@@ -1455,6 +1511,18 @@ function renderArticle(mdFilename, rawMarkdown) {
     .qr-dq-green { color: #86efac; }
     .qr-dq-yellow { color: #fcd34d; }
     .qr-dq-red { color: #fca5a5; }
+
+    /* 双打分横幅 */
+    .dual-banner {
+      border-radius: 12px; padding: 12px 16px; margin-bottom: 14px;
+      border: 1px solid #334155; font-size: 0.85rem;
+    }
+    .dual-banner.dual-ok { background: #0f291a88; border-color: #22c55e44; color: #bbf7d0; }
+    .dual-banner.dual-mild { background: #42200666; border-color: #f59e0b44; color: #fde68a; }
+    .dual-banner.dual-conflict { background: #1e1b4b99; border-color: #818cf866; color: #c7d2fe; }
+    .dual-title { font-weight: 700; margin-bottom: 4px; }
+    .dual-policy { font-weight: 600; opacity: 0.95; }
+    .dual-note { font-size: 0.75rem; opacity: 0.8; margin-top: 4px; }
 
     /* 预测仪表盘 */
     .pred-dashboard { margin-bottom: 32px; }
