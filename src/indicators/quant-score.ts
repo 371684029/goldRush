@@ -255,3 +255,32 @@ export function formatQuantScoreOneLine(result: QuantScoreResult): string {
     .map(k => `${k}=${result.factors[k].normalizedScore}`);
   return `[量化] ${keys.join('/')} → ${result.score}`;
 }
+
+/** Markdown 因子表（权重 0 的 event_heat 等跳过） */
+export function formatQuantScoreMarkdown(
+  factors: QuantScoreResult['factors'] | undefined,
+  score?: number,
+): string {
+  if (!factors || Object.keys(factors).length === 0) return '';
+  const lines = [
+    '### 量化因子构成（纯本地，event_heat 默认权重 0）',
+    '',
+    '| 因子 | 信号分 | 权重 | 贡献 |',
+    '|------|--------|------|------|',
+  ];
+  let sumW = 0;
+  for (const f of Object.values(factors) as QuantFactorDetail[]) {
+    if (f.weight <= 0) continue;
+    sumW += f.weight;
+    lines.push(
+      `| ${f.name} | ${f.normalizedScore} | ${(f.weight * 100).toFixed(0)}% | +${f.contribution.toFixed(1)} |`,
+    );
+  }
+  if (score != null) {
+    lines.push(`| **合计** | | ${(sumW * 100).toFixed(0)}% | **${score}** |`);
+  }
+  lines.push('');
+  lines.push('> tips / flow / trend 等结构化因子保留权重；事件热度默认关闭。无效因子可在 `DEFAULT_WEIGHTS` 中置 0 后重归一。');
+  lines.push('');
+  return lines.join('\n');
+}
