@@ -176,18 +176,16 @@ export class OrchestratorAgent extends BaseAgent {
     const displayScore = calAdjust.calibratedScore;
     const displayDirection = directionFromScore(displayScore);
 
-    // 纯量化评分（与 LLM 评分并行，用于对比校准）
+    // 纯量化评分（与 LLM 评分并行，独立可复现；因子明细写入报告）
     let quantScore: number | undefined;
+    let quantFactors: GoldAnalysisReport['overall']['quantFactors'];
     try {
       const pricesRepo = new GoldPricesRepo(db);
       const recentRecords = pricesRepo.getRecent(120);
       const closes = forwardFillCloses(recentRecords);
       const sorted = closes.filter((v): v is number => v != null);
-      // 提取 DXY 序列
       const dxy = recentRecords.map(r => r.dollarIndex).filter((v): v is number => v != null);
-      // 提取 10Y 美债收益率序列
       const us10y = recentRecords.map(r => r.us10yYield).filter((v): v is number => v != null);
-      // 提取 TIPS 实际收益率序列
       const tips = recentRecords.map(r => r.tipsYield).filter((v): v is number => v != null);
       const flowSignal = computeInstitutionalSignal(
         marketData?.london?.price?.value ?? null,
@@ -201,9 +199,10 @@ export class OrchestratorAgent extends BaseAgent {
         regimeTag: opts.macroRegime.tag,
       });
       quantScore = quantResult.score;
+      quantFactors = quantResult.factors;
     } catch {
-      // 量化评分失败不阻塞主流程
       quantScore = undefined;
+      quantFactors = undefined;
     }
 
     const schema = {
@@ -392,6 +391,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         score: enforceOverallScore(orchestratorResult.overall.score, displayScore),
         direction: displayDirection,
         quantScore,
+        quantFactors,
         calibration: {
           ...(calibrationContext ?? {
             scoreRange: 'N/A',
