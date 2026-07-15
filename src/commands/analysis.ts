@@ -50,6 +50,12 @@ import {
   nonActionableAdvice,
   type DataQualityGate,
 } from '../utils/data-quality-gate.js';
+import {
+  evaluateDualScore,
+  formatDualScoreConsole,
+  type DualScoreVerdict,
+} from '../utils/dual-score.js';
+import { formatQuantScoreMarkdown } from '../indicators/quant-score.js';
 
 export async function analysisCommand(options: {
   horizon: Horizon;
@@ -299,11 +305,31 @@ export async function analysisCommand(options: {
     overallConfidence: validation.overallConfidence,
     warnings: priceWarnings,
   };
-  // 红档：覆盖操作结论，禁止「依据本报告加减仓」
+
+  // 四维度一致性 + 双打分冲突规则
+  const dimConsistency = checkConsistency([
+    { name: '技术面', score: technical.score },
+    { name: '基本面', score: fundamental.score },
+    { name: '情绪面', score: sentiment.score },
+    { name: '基金面', score: fund.valuation?.level === 'low' ? 70 : fund.valuation?.level === 'high' ? 25 : 50 },
+  ]);
+  const dualVerdict = evaluateDualScore(
+    report.overall.score,
+    report.overall.quantScore,
+    {
+      consistencyWeak: dimConsistency.level === 'weak',
+      dataActionable: dataQualityGate.actionable,
+    },
+  );
+
+  // 红档 或 双打分冲突：覆盖操作结论（双分仍展示）
   if (!dataQualityGate.actionable) {
     applyNonActionableOverlay(report, dataQualityGate);
+  } else if (dualVerdict.actionOverride) {
+    applyDualHoldOverlay(report, dualVerdict);
   }
   console.log('  ✅ 编排完成');
+  console.log(formatDualScoreConsole(dualVerdict));
 
   const judgeVerdict = buildJudgeVerdict(technical, fundamental, sentiment, rebuttal, scoreBreakdown);
   console.log(formatJudgeVerdictConsole(judgeVerdict));
@@ -356,6 +382,7 @@ export async function analysisCommand(options: {
     scoreBreakdown,
     longTermOutlook,
     dataQualityGate,
+    dualVerdict,
   };
 
   // 输出报告
@@ -386,6 +413,7 @@ export async function analysisCommand(options: {
     const mdContent = formatReportMarkdown(report, options.horizon, {
       ...reportExtras,
       dataQualityGate,
+      dualVerdict,
     });
     fs.writeFileSync(filename, mdContent, 'utf-8');
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
@@ -484,6 +512,7 @@ async function runSmartAnalysis(
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const filename = `${docsDir}/goldrush-analysis-${today}.md`;
+    // smart 路径无 dualVerdict 时仍可导出
     fs.writeFileSync(filename, formatReportMarkdown(report, options.horizon, { macroRegime, scoreBreakdown }), 'utf-8');
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
   }
@@ -509,6 +538,25 @@ function applyNonActionableOverlay(report: GoldAnalysisReport, gate: DataQuality
   }
 }
 
+/** 双打分冲突：维持定投，不站队 */
+function applyDualHoldOverlay(report: GoldAnalysisReport, dual: DualScoreVerdict): void {
+  const ov = dual.actionOverride;
+  if (!ov) return;
+  if (report.overall?.shortTerm) {
+    report.overall.shortTerm.action = ov.action;
+    report.overall.shortTerm.riskWarning = ov.headline;
+  }
+  if (report.overall?.midTerm) {
+    report.overall.midTerm.investAdvice = {
+      ...report.overall.midTerm.investAdvice,
+      dipInvest: 'continue',
+      positionAdjust: 'hold',
+      recommendedFund: report.overall.midTerm.investAdvice?.recommendedFund ?? 'N/A',
+    };
+    report.overall.midTerm.riskWarning = ov.headline;
+  }
+}
+
 function printReport(
   report: GoldAnalysisReport,
   horizon: Horizon,
@@ -519,6 +567,7 @@ function printReport(
     similarPatterns?: PatternMatch[];
     longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
     dataQualityGate?: DataQualityGate;
+    dualVerdict?: DualScoreVerdict;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
@@ -527,6 +576,9 @@ function printReport(
 
   if (extras?.dataQualityGate) {
     console.log('\n' + formatDataQualityGateConsole(extras.dataQualityGate));
+  }
+  if (extras?.dualVerdict) {
+    console.log('\n' + formatDualScoreConsole(extras.dualVerdict));
   }
 
   const bd = scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
@@ -557,6 +609,7 @@ function printReport(
   const scoreDisplay = overall?.score ?? 'N/A';
   const directionDisplay = overall?.direction ?? 'neutral';
   const gate = extras?.dataQualityGate;
+  const dual = extras?.dualVerdict;
   let advice = overall?.score != null ? scoreToAdvice(overall.score) : null;
   if (gate && !gate.actionable) {
     const na = nonActionableAdvice();
@@ -566,26 +619,39 @@ function printReport(
       headline: na.headline,
       action: na.action,
     };
+  } else if (dual?.actionOverride) {
+    advice = {
+      label: '双分冲突·弃权',
+      emoji: '⚖️',
+      headline: dual.actionOverride.headline,
+      action: dual.actionOverride.action,
+    };
   }
-  console.log(`\n  综合研判: ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
+  console.log(`\n  综合研判(LLM): ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
   if (overall?.score) {
     console.log(`  ${scoreBar(overall.score)}`);
   }
-  // 双打分对比：LLM vs 量化
+  // 双打分：始终并排
   if (overall?.quantScore != null) {
     const delta = overall.score - overall.quantScore;
     const deltaStr = delta > 0 ? `LLM偏高 +${delta}` : delta < 0 ? `LLM偏低 ${delta}` : '一致';
     const quantDir = overall.quantScore >= 58 ? 'bullish' : overall.quantScore <= 42 ? 'bearish' : 'neutral';
     console.log(`  🔢 量化评分: ${scoreBar(overall.quantScore)}`);
-    console.log(`     量化=${overall.quantScore} ${directionMark(quantDir)} | LLM=${overall.score} | 偏差=${deltaStr}`);
-    if (Math.abs(delta) > 15) {
-      console.log(chalk.yellow('     ⚠️ 双分偏差>15：建议以量化分 + CFTC 主力为底，LLM 作叙事参考'));
+    console.log(`     量化=${overall.quantScore} ${directionMark(quantDir)} | LLM=${overall.score} | 偏差=${deltaStr} | 策略=${dual?.actionPolicy ?? 'n/a'}`);
+    if (overall.quantFactors) {
+      console.log(formatQuantScoreConsole({
+        score: overall.quantScore,
+        direction: quantDir,
+        factors: overall.quantFactors as import('../indicators/quant-score.js').QuantScoreResult['factors'],
+      }, '  '));
     }
   }
   if (advice) {
     console.log(`  💡 ${advice.emoji} ${advice.action}`);
     if (gate && !gate.actionable) {
       console.log(chalk.red(`  ⛔ ${advice.headline}`));
+    } else if (dual?.actionOverride) {
+      console.log(chalk.yellow(`  ⚖️ ${advice.headline}`));
     }
   }
 

@@ -66,9 +66,11 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
     console.log(`  ${bucket.scoreRange.padEnd(8)} ${String(bucket.sampleSize).padStart(4)}  ${(bucket.actualUpProbability * 100).toFixed(0).padStart(8)}%    ${bucket.avgReturn > 0 ? '+' : ''}${bucket.avgReturn.toFixed(1).padStart(6)}%   ${biasStr}  ${systemBiasStr}`);
   }
 
+  console.log(chalk.gray('\n  （上表为 LLM 分桶校准；坏样本/红档已排除）'));
+
   // 量化评分校准表格（如果存在量化数据）
   if (quantReport.buckets.length > 0) {
-    console.log(`\n  🔢 量化评分校准\n`);
+    console.log(`\n  🔢 量化评分校准（独立轨道）\n`);
     console.log('  评分区间  样本  实际涨概率  平均涨幅  偏差      系统偏差');
     console.log(separator('─', 55));
 
@@ -85,20 +87,39 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
 
       console.log(`  ${bucket.scoreRange.padEnd(8)} ${String(bucket.sampleSize).padStart(4)}  ${(bucket.actualUpProbability * 100).toFixed(0).padStart(8)}%    ${bucket.avgReturn > 0 ? '+' : ''}${bucket.avgReturn.toFixed(1).padStart(6)}%   ${biasStr}  ${systemBiasStr}`);
     }
+  } else {
+    console.log(chalk.yellow('\n  🔢 量化评分校准：暂无 quant_score 样本（新报告会写入）'));
+  }
 
-    // 对比摘要
-    const llmAvgError = report.buckets.length > 0
-      ? report.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / report.buckets.length
-      : 0;
-    const quantAvgError = quantReport.buckets.length > 0
-      ? quantReport.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / quantReport.buckets.length
-      : 0;
+  // 双打分：方向命中 + 冲突日
+  const dualHits = repo.computeDualTrackHitStats(options.days);
+  console.log(`\n  ⚖️ 双打分健全性（5 日方向命中；>55 预测涨，<45 预测跌）\n`);
+  const llmRate = dualHits.llmTotal > 0
+    ? `${(dualHits.llmHits / dualHits.llmTotal * 100).toFixed(0)}% (${dualHits.llmHits}/${dualHits.llmTotal})`
+    : 'N/A';
+  const quantRate = dualHits.quantTotal > 0
+    ? `${(dualHits.quantHits / dualHits.quantTotal * 100).toFixed(0)}% (${dualHits.quantHits}/${dualHits.quantTotal})`
+    : 'N/A';
+  console.log(`  LLM 方向命中:   ${llmRate}`);
+  console.log(`  量化方向命中:   ${quantRate}`);
+  console.log(`  冲突日(|Δ|>15): ${dualHits.conflictDays} 天`);
+  if (dualHits.conflictDays > 0) {
+    console.log(`    · 冲突日若跟量化命中: ${dualHits.conflictFollowQuantHits}/${dualHits.conflictDays}`);
+    console.log(`    · 冲突日若跟LLM命中:  ${dualHits.conflictFollowLlmHits}/${dualHits.conflictDays}`);
+    console.log(chalk.gray('    · 产品规则：冲突日操作弃权（维持定投），两套分数仍展示'));
+  }
 
-    if (llmAvgError > 0 || quantAvgError > 0) {
-      const better = llmAvgError < quantAvgError ? 'LLM评分' : '量化评分';
-      const diff = Math.abs(llmAvgError - quantAvgError).toFixed(1);
-      console.log(`\n  📊 系统对比: ${better}平均校准误差更小 (差${diff}%)`);
-    }
+  const llmAvgError = report.buckets.length > 0
+    ? report.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / report.buckets.length
+    : 0;
+  const quantAvgError = quantReport.buckets.length > 0
+    ? quantReport.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / quantReport.buckets.length
+    : 0;
+
+  if (llmAvgError > 0 || quantAvgError > 0) {
+    const better = llmAvgError <= quantAvgError ? 'LLM' : '量化';
+    console.log(`\n  📊 分桶校准误差：LLM 均 ${llmAvgError.toFixed(1)}% · 量化均 ${quantAvgError.toFixed(1)}% → 近期更贴「${better}」`);
+    console.log(chalk.gray('     （仅作参考；冲突日仍弃权，不自动改写操作）'));
   }
 
   // --detail：按评分区间展开明细
