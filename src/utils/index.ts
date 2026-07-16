@@ -25,3 +25,14 @@ export {
   formatDualScoreMarkdown,
   DUAL_CONFLICT_THRESHOLD,
 } from './dual-score.js';
+export {
+  recommendPosition,
+  formatPositionConsole,
+  formatPositionMarkdown,
+} from './position-recommend.js';
+export {
+  buildPredictionTrackStats,
+  savePredictionTrackJson,
+  formatPredictionTrackConsole,
+  formatPredictionTrackMarkdown,
+} from './prediction-track.js';

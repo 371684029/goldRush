@@ -223,10 +223,12 @@ export interface LongTermHorizonOutlook {
   /** 偏多强度 0–100（50=中性） */
   biasScore: number;
   confidence: 'low' | 'moderate' | 'high';
-  /** 方向描述，如「温和上行」 */
+  /** 方向描述，如「结构偏多」 */
   trendLabel: string;
-  /** 名义回报区间（累计，非承诺） */
+  /** 参考区间：历史分位优先；low 置信可不展示点位 */
   returnBand: string;
+  /** 配置档位（比点位预测更可操作） */
+  allocationStance?: 'overweight' | 'neutral' | 'underweight';
   drivers: string[];
   risks: string[];
   /** 支付宝定投者操作建议 */

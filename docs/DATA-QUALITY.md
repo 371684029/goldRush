@@ -1,7 +1,7 @@
 # GoldRush 数据质量：事故复盘与防线
 
 > 更新：2026-07-15（含门禁、锚定、东财 GLD/PBOC、Web 色点）  
-> 关联：`IMPROVEMENTS.md` 第六～九轮、`AGENTS.md`、`docs/DUAL-SCORE.md`、`CORRECTNESS-SPEC.md`
+> 关联：`IMPROVEMENTS.md` 第六～十一轮、`AGENTS.md`、`docs/DUAL-SCORE.md`、`docs/POSITION-AND-TRACK.md`（红档→仓位上限）、`CORRECTNESS-SPEC.md`
 
 ---
 
@@ -176,8 +176,9 @@ console.log('lbma', h.length, h.slice(-2));
 | 位置 | 行为 |
 |------|------|
 | 文章首屏 | `dq-banner` 红/黄/绿条 + 置信度 |
-| 速读卡 / 预测仪表盘 | 门禁标签；红档覆盖「定投建议」文案 |
+| 速读卡 / 预测仪表盘 | 门禁徽章；红档覆盖「定投建议」文案 |
 | 首页列表 / 英雄卡 | 色点 + 置信度；红档显示「勿据此加减仓」 |
+| 仓位推荐 | 红档 → 目标仓上限 35%（见 [POSITION-AND-TRACK.md](./POSITION-AND-TRACK.md)） |
 | 旧日报无门禁小节 | 按 conf 推断：&lt;35 红，≥70 绿，其余黄 |
 
 解析函数：`extractDataQualityGate` / `renderQualityBanner`。

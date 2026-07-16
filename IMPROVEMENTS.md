@@ -259,12 +259,42 @@ UPDATE gold_prices SET london_close=NULL WHERE london_close=0;
 
 ---
 
+## 十四、第十轮（长期 1/3/5 年可靠性）
+
+| 项 | 落地 |
+|----|------|
+| 慢变量主导 | 3/5 年技术权重≈0；overall 仅 1 年轻掺 |
+| 反驳封顶 | 多年档反驳惩罚大幅压低 |
+| 区间 | 温和年化×年数，累计硬顶 ±35%；优先无条件历史分位 |
+| low 置信 | 不展示点位式累计% |
+| 平滑 | 相对上一展望防日度乱翻 |
+| 配置档位 | overweight/neutral/underweight + 定投文案 |
+| 文档 | `docs/LONG-TERM-OUTLOOK.md` |
+
+---
+
+## 十五、第十一轮（仓位推荐 + 历史预测对错 Web）
+
+| 项 | 落地 |
+|----|------|
+| 仓位推荐 | `src/utils/position-recommend.ts`：相对「计划黄金仓」0–100%；定投层/波段层；门禁红上限 35%、双分冲突 ≤50% |
+| 预测对错 | `src/utils/prediction-track.ts`：近 90 日 5 日标签；LLM/量化命中、高低分段涨概率、冲突日、分桶、近 12 条明细 |
+| 落盘 | `docs/goldrush-stats-latest.json`（analysis 时写入） |
+| MD | 日报嵌入 `## 📦 当前仓位推荐` + `## 📊 历史预测对错` |
+| Web | `server.cjs` 首页统计卡 + 面板；文章页仪表盘内嵌；旧报告可按分数粗推仓位 |
+| 接入 | `analysis.ts` / `report-md.ts` |
+| 文档 | **`docs/POSITION-AND-TRACK.md`**；`README` / `AGENTS` / `OPTIMIZATION` 索引 |
+
+---
+
 ## 文档索引（维护约定）
 
 | 变更类型 | 应更新的文档 |
 |----------|----------------|
 | 数据/门禁/锚定 | `docs/DATA-QUALITY.md`、`AGENTS.md`、必要时 `README` |
 | 双打分/校准/因子 | `docs/DUAL-SCORE.md`、`AGENTS.md` 双打分节、`README` 双打分节 |
+| 长期 1/3/5 年 | `docs/LONG-TERM-OUTLOOK.md`、`README` 文档表 |
+| 仓位/预测对错 | **`docs/POSITION-AND-TRACK.md`**、`IMPROVEMENTS.md` 第十一轮、`README`、`AGENTS.md`、`OPTIMIZATION.md` |
 | 主力 flow | `docs/FLOW-PLAN.md`、`README` 数据源表 |
 | 一轮修复归档 | `IMPROVEMENTS.md` 追加轮次 |
 | 路线图状态 | `docs/OPTIMIZATION.md` |

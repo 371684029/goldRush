@@ -182,6 +182,127 @@ function renderDualScoreBanner(dual) {
   </div>`;
 }
 
+/** 从 MD「当前仓位推荐」小节提取 */
+function extractPositionRecommend(md) {
+  const sec = md.match(/##\s*[📦\s]*当前仓位推荐([\s\S]*?)(?=\n##\s|$)/);
+  if (!sec) return null;
+  const body = sec[1];
+  const pctM = body.match(/相对计划仓\s*\*{0,2}(\d+)%/);
+  const labelM = body.match(/(极轻|偏轻|标配|偏积极|积极)/);
+  const coreM = body.match(/定投层\s*(\d+)%/);
+  const satM = body.match(/波段层\s*(\d+)%/);
+  const headlineM = body.match(/\*\*结论\*\*[：:]\s*(.+)/);
+  const actionM = body.match(/\*\*操作\*\*[：:]\s*(.+)/);
+  const tiltM = body.match(/\*\*倾向\*\*[：:]\s*(.+)/);
+  const targetPct = pctM ? parseInt(pctM[1], 10) : null;
+  if (targetPct == null) return null;
+  const label = labelM ? labelM[1] : '标配';
+  let emoji = '🟡';
+  if (label === '极轻') emoji = '🔴';
+  else if (label === '偏轻') emoji = '🟠';
+  else if (label === '偏积极') emoji = '🟢';
+  else if (label === '积极') emoji = '🔵';
+  let tilt = 'hold';
+  if (tiltM) {
+    if (/减|轻/.test(tiltM[1])) tilt = 'reduce';
+    else if (/积极|加/.test(tiltM[1])) tilt = 'add';
+  }
+  return {
+    targetPct,
+    label,
+    emoji,
+    coreSharePct: coreM ? parseInt(coreM[1], 10) : null,
+    satelliteSharePct: satM ? parseInt(satM[1], 10) : null,
+    headline: headlineM ? headlineM[1].trim() : '',
+    action: actionM ? actionM[1].trim() : '',
+    tilt,
+  };
+}
+
+/** 读取 docs/goldrush-stats-latest.json */
+function loadPredictionStats() {
+  try {
+    const fp = path.join(DOCS_DIR, 'goldrush-stats-latest.json');
+    if (!fs.existsSync(fp)) return null;
+    return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/** 仓位推荐面板 */
+function renderPositionPanel(pos) {
+  if (!pos) return '';
+  const core = pos.coreSharePct != null ? pos.coreSharePct : '—';
+  const sat = pos.satelliteSharePct != null ? pos.satelliteSharePct : '—';
+  const tiltLabel = pos.tilt === 'reduce' ? '偏轻/减仓' : pos.tilt === 'add' ? '可小幅积极' : '维持';
+  const barColor = pos.targetPct <= 40 ? '#ef4444' : pos.targetPct >= 70 ? '#22c55e' : '#f59e0b';
+  return `<div class="pos-panel" role="region" aria-label="当前仓位推荐">
+    <div class="pos-head">
+      <span class="pos-emoji">${pos.emoji}</span>
+      <div>
+        <div class="pos-title">📦 当前仓位推荐</div>
+        <div class="pos-sub">相对「黄金计划仓」=100% · 非杠杆</div>
+      </div>
+      <div class="pos-pct" style="color:${barColor}">${pos.targetPct}<span class="pos-pct-unit">%</span></div>
+    </div>
+    <div class="pos-meter"><div class="pos-fill" style="width:${pos.targetPct}%;background:${barColor}"></div></div>
+    <div class="pos-tags">
+      <span class="pos-tag">${esc(pos.label)}</span>
+      <span class="pos-tag">定投层 ${core}%</span>
+      <span class="pos-tag">波段层 ${sat}%</span>
+      <span class="pos-tag">${esc(tiltLabel)}</span>
+    </div>
+    ${pos.headline ? `<div class="pos-headline">${esc(pos.headline)}</div>` : ''}
+    ${pos.action ? `<div class="pos-action">→ ${esc(pos.action)}</div>` : ''}
+  </div>`;
+}
+
+/** 历史预测对错统计面板 */
+function renderPredictionStatsPanel(stats) {
+  if (!stats) return '';
+  const llmRate = stats.llm?.hitRate != null ? `${stats.llm.hitRate}%` : 'N/A';
+  const quantRate = stats.quant?.hitRate != null ? `${stats.quant.hitRate}%` : 'N/A';
+  const highRate = stats.highScoreUpRate != null ? `${stats.highScoreUpRate}%` : 'N/A';
+  const lowRate = stats.lowScoreUpRate != null ? `${stats.lowScoreUpRate}%` : 'N/A';
+  const llmN = stats.llm?.total != null ? `${stats.llm.hits ?? 0}/${stats.llm.total}` : '—';
+  const quantN = stats.quant?.total != null ? `${stats.quant.hits ?? 0}/${stats.quant.total}` : '—';
+
+  const bucketRows = (stats.buckets || []).slice(0, 8).map(b => {
+    const avg = b.avgReturn > 0 ? `+${b.avgReturn}%` : `${b.avgReturn}%`;
+    return `<tr><td>${esc(b.range)}</td><td>${b.sample}</td><td>${b.upRate}%</td><td>${avg}</td></tr>`;
+  }).join('');
+
+  const recentRows = (stats.recent || []).slice(0, 10).map(r => {
+    const mark = r.status === 'hit' ? '✅' : r.status === 'miss' ? '❌' : r.status === 'flat' ? '➖' : '⏳';
+    const ret = r.actual5dPct != null ? `${r.actual5dPct > 0 ? '+' : ''}${r.actual5dPct}%` : '—';
+    const q = r.quantScore != null ? r.quantScore : '—';
+    return `<tr><td>${esc(r.date)}</td><td>${r.llmScore}</td><td>${q}</td><td>${esc(r.pred)}</td><td>${ret}</td><td>${mark}</td></tr>`;
+  }).join('');
+
+  return `<div class="pred-stats-panel" role="region" aria-label="历史预测对错">
+    <div class="ps-head">
+      <div class="ps-title">📊 历史预测对错</div>
+      <div class="ps-sub">近 ${stats.windowDays ?? 90} 日 · 5 日标签 · 样本 ${stats.sampleEligible ?? '—'} · ${esc(stats.asOf || '')}</div>
+    </div>
+    ${stats.summary ? `<div class="ps-summary">${esc(stats.summary)}</div>` : ''}
+    <div class="ps-grid">
+      <div class="ps-card"><div class="ps-num">${esc(llmRate)}</div><div class="ps-label">LLM 命中</div><div class="ps-meta">${esc(llmN)}</div></div>
+      <div class="ps-card"><div class="ps-num">${esc(quantRate)}</div><div class="ps-label">量化命中</div><div class="ps-meta">${esc(quantN)}</div></div>
+      <div class="ps-card"><div class="ps-num">${esc(highRate)}</div><div class="ps-label">高分(≥60) 5日涨</div><div class="ps-meta">n=${stats.highScoreN ?? 0}</div></div>
+      <div class="ps-card"><div class="ps-num">${esc(lowRate)}</div><div class="ps-label">低分(≤40) 5日涨</div><div class="ps-meta">n=${stats.lowScoreN ?? 0}</div></div>
+      <div class="ps-card"><div class="ps-num">${stats.conflictDays ?? 0}</div><div class="ps-label">双分冲突日</div><div class="ps-meta">跟Q ${stats.conflictFollowQuantHits ?? 0} / 跟L ${stats.conflictFollowLlmHits ?? 0}</div></div>
+    </div>
+    ${bucketRows ? `<details class="ps-details"><summary>评分区间 vs 实际 5 日</summary>
+      <table class="ps-table"><thead><tr><th>区间</th><th>样本</th><th>涨概率</th><th>均涨幅</th></tr></thead><tbody>${bucketRows}</tbody></table>
+    </details>` : ''}
+    ${recentRows ? `<details class="ps-details" open><summary>最近预测明细</summary>
+      <table class="ps-table"><thead><tr><th>日期</th><th>LLM</th><th>量化</th><th>预测</th><th>5日</th><th>对错</th></tr></thead><tbody>${recentRows}</tbody></table>
+    </details>` : ''}
+    <div class="ps-note">&gt;55 记涨、&lt;45 记跌，中间与持平不计命中；非业绩承诺</div>
+  </div>`;
+}
+
 /**
  * 数据质量门禁（与 CLI data-quality-gate 对齐）
  * 优先解析 MD 中的「数据质量门禁」小节；旧报告按置信度推断。
@@ -504,6 +625,11 @@ function stripDashboardDuplicates(md) {
   md = stripSection('📊 评分构成');
   md = stripSection('综合研判');
   md = stripSection('📈 四维度摘要');
+  // 顶部已有可视化面板，避免正文重复
+  md = stripSection('📦 当前仓位推荐');
+  md = stripSection('当前仓位推荐');
+  md = stripSection('📊 历史预测对错');
+  md = stripSection('历史预测对错');
   return md;
 }
 
@@ -617,6 +743,8 @@ function renderPredictionDashboard(meta) {
         </div>
       </div>
     </div>
+    ${renderPositionPanel(meta.positionRec)}
+    ${renderPredictionStatsPanel(meta.predictionStats)}
     ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">三情景概率</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
     <details class="pred-secondary">
       <summary>历史佐证与短期提示</summary>
@@ -810,6 +938,35 @@ function renderIndex(fileInfos) {
   const neutral = analyses.filter(i => i.direction === 'neutral' || (i.direction === null && i.score != null)).length;
   const avgScore = total > 0 ? Math.round(analyses.reduce((s, i) => s + (i.score ?? 50), 0) / total) : '—';
 
+  // 最新报告仓位 + 全局预测对错 JSON
+  let latestPos = null;
+  if (latest) {
+    try {
+      const latestMd = fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8');
+      latestPos = extractPositionRecommend(latestMd);
+    } catch { /* ignore */ }
+    // 旧日报无仓位小节时：用分数粗推（与 position-recommend 同档）
+    if (!latestPos && latest.score != null) {
+      const s = latest.score;
+      let target = s <= 25 ? 25 : s <= 35 ? 35 : s <= 45 ? 45 : s <= 55 ? 55 : s <= 65 ? 65 : s <= 75 ? 75 : 85;
+      if (latest.qualityGate && !latest.qualityGate.actionable) target = Math.min(target, 35);
+      const label = target <= 30 ? '极轻' : target <= 45 ? '偏轻' : target <= 60 ? '标配' : target <= 75 ? '偏积极' : '积极';
+      const emoji = label === '极轻' ? '🔴' : label === '偏轻' ? '🟠' : label === '标配' ? '🟡' : label === '偏积极' ? '🟢' : '🔵';
+      latestPos = {
+        targetPct: target,
+        label,
+        emoji,
+        coreSharePct: target <= 40 ? 85 : 70,
+        satelliteSharePct: target <= 40 ? 15 : 30,
+        headline: '（旧报告推算）相对计划仓建议',
+        action: `建议相对计划仓约 ${target}%（${label}）；完整规则请重新 analysis --md`,
+        tilt: target <= 40 ? 'reduce' : target >= 70 ? 'add' : 'hold',
+      };
+    }
+  }
+  const predictionStats = loadPredictionStats();
+  const homePanels = `${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -886,6 +1043,55 @@ function renderIndex(fileInfos) {
     .hero-short { font-size: 0.82rem; color: #94a3b8; }
     .hero-dims { margin-top: 10px; }
     .hero-arrow { font-size: 1.4rem; color: #475569; flex-shrink: 0; }
+
+    /* 首页：仓位推荐 + 预测对错 */
+    .pos-panel {
+      margin: 0 0 16px; padding: 16px 18px; border-radius: 14px;
+      background: linear-gradient(135deg, #1a2338 0%, #1e293b 100%);
+      border: 1px solid #334155;
+    }
+    .pos-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .pos-emoji { font-size: 1.6rem; }
+    .pos-title { font-weight: 700; font-size: 0.95rem; color: #f1f5f9; }
+    .pos-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .pos-pct { margin-left: auto; font-size: 2rem; font-weight: 800; line-height: 1; }
+    .pos-pct-unit { font-size: 0.9rem; font-weight: 600; opacity: 0.8; }
+    .pos-meter { height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+    .pos-fill { height: 100%; border-radius: 4px; }
+    .pos-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .pos-tag {
+      font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+      background: #0f172a; border: 1px solid #334155; color: #cbd5e1;
+    }
+    .pos-headline { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-top: 4px; }
+    .pos-action { font-size: 0.82rem; color: #94a3b8; margin-top: 6px; line-height: 1.45; }
+    .pred-stats-panel {
+      margin: 0 0 20px; padding: 16px 18px; border-radius: 14px;
+      background: #131c2e; border: 1px solid #2d3a4e;
+    }
+    .ps-head { margin-bottom: 8px; }
+    .ps-title { font-weight: 700; font-size: 0.95rem; color: #f1f5f9; }
+    .ps-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .ps-summary { font-size: 0.82rem; color: #94a3b8; margin: 8px 0 12px; line-height: 1.45; }
+    .ps-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 10px; margin-bottom: 12px;
+    }
+    .ps-card {
+      background: #0f172a; border: 1px solid #1e293b; border-radius: 10px;
+      padding: 12px 10px; text-align: center;
+    }
+    .ps-num { font-size: 1.25rem; font-weight: 800; color: #fbbf24; }
+    .ps-label { font-size: 0.68rem; color: #94a3b8; margin-top: 4px; }
+    .ps-meta { font-size: 0.65rem; color: #64748b; margin-top: 2px; }
+    .ps-details { margin-top: 8px; font-size: 0.82rem; color: #94a3b8; }
+    .ps-details summary { cursor: pointer; font-weight: 600; color: #cbd5e1; padding: 6px 0; }
+    .ps-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.78rem; }
+    .ps-table th, .ps-table td {
+      padding: 6px 8px; text-align: left; border-bottom: 1px solid #1e293b; color: #cbd5e1;
+    }
+    .ps-table th { color: #64748b; font-weight: 600; font-size: 0.7rem; }
+    .ps-note { font-size: 0.7rem; color: #64748b; margin-top: 10px; line-height: 1.4; }
 
     /* 报告卡片列表 */
     .card-grid { display: flex; flex-direction: column; gap: 10px; }
@@ -1090,6 +1296,9 @@ function renderIndex(fileInfos) {
       <div class="stat-card"><div class="num yellow">${neutral}</div><div class="label">中性</div></div>
       <div class="stat-card"><div class="num red">${bearish}</div><div class="label">偏空</div></div>
       <div class="stat-card"><div class="num gold">${avgScore}</div><div class="label">均分</div></div>
+      ${predictionStats?.llm?.hitRate != null ? `<div class="stat-card"><div class="num green">${predictionStats.llm.hitRate}%</div><div class="label">LLM命中</div></div>` : ''}
+      ${predictionStats?.quant?.hitRate != null ? `<div class="stat-card"><div class="num gold">${predictionStats.quant.hitRate}%</div><div class="label">量化命中</div></div>` : ''}
+      ${latestPos ? `<div class="stat-card"><div class="num yellow">${latestPos.targetPct}%</div><div class="label">建议仓位</div></div>` : ''}
       ` : ''}
     </div>
 
@@ -1100,6 +1309,7 @@ function renderIndex(fileInfos) {
       <button class="sort-btn" id="sort-score" onclick="setSort('score')">📊 评分</button>
     </div>
     ${heroHtml}
+    ${homePanels}
     ${rest.length ? `<div class="section-label">历史日报</div><div class="card-grid" id="card-grid">${cardRows}</div>` : ''}
     ${digests.length ? `<div class="section-label" style="margin-top:28px">周期摘要</div><div class="card-grid" id="digest-grid">${digestRows}</div>` : ''}
     ${others.length ? `<div class="section-label" style="margin-top:28px">其它文档</div><div class="card-grid">${otherRows}</div>` : ''}
@@ -1173,6 +1383,8 @@ function renderArticle(mdFilename, rawMarkdown) {
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
   const quantInfo = extractQuantScore(rawMarkdown);
+  const positionRec = extractPositionRecommend(rawMarkdown);
+  const predictionStats = loadPredictionStats();
   let advice = resolveAdvice(scoreInfo, qualityGate);
   if (advice && dualScore?.conflict && qualityGate?.actionable !== false) {
     advice = {
@@ -1195,6 +1407,7 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
     scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate, dualScore,
+    positionRec, predictionStats,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;
@@ -1523,6 +1736,57 @@ function renderArticle(mdFilename, rawMarkdown) {
     .dual-title { font-weight: 700; margin-bottom: 4px; }
     .dual-policy { font-weight: 600; opacity: 0.95; }
     .dual-note { font-size: 0.75rem; opacity: 0.8; margin-top: 4px; }
+
+    /* 仓位推荐面板 */
+    .pos-panel {
+      margin: 16px 0; padding: 16px 18px; border-radius: 14px;
+      background: linear-gradient(135deg, #1a2338 0%, #1e293b 100%);
+      border: 1px solid #334155;
+    }
+    .pos-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .pos-emoji { font-size: 1.6rem; }
+    .pos-title { font-weight: 700; font-size: 0.95rem; color: #f1f5f9; }
+    .pos-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .pos-pct { margin-left: auto; font-size: 2rem; font-weight: 800; line-height: 1; }
+    .pos-pct-unit { font-size: 0.9rem; font-weight: 600; opacity: 0.8; }
+    .pos-meter { height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+    .pos-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+    .pos-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .pos-tag {
+      font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+      background: #0f172a; border: 1px solid #334155; color: #cbd5e1;
+    }
+    .pos-headline { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-top: 4px; }
+    .pos-action { font-size: 0.82rem; color: #94a3b8; margin-top: 6px; line-height: 1.45; }
+
+    /* 历史预测对错面板 */
+    .pred-stats-panel {
+      margin: 16px 0 20px; padding: 16px 18px; border-radius: 14px;
+      background: #131c2e; border: 1px solid #2d3a4e;
+    }
+    .ps-head { margin-bottom: 8px; }
+    .ps-title { font-weight: 700; font-size: 0.95rem; color: #f1f5f9; }
+    .ps-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .ps-summary { font-size: 0.82rem; color: #94a3b8; margin: 8px 0 12px; line-height: 1.45; }
+    .ps-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 10px; margin-bottom: 12px;
+    }
+    .ps-card {
+      background: #0f172a; border: 1px solid #1e293b; border-radius: 10px;
+      padding: 12px 10px; text-align: center;
+    }
+    .ps-num { font-size: 1.25rem; font-weight: 800; color: #fbbf24; }
+    .ps-label { font-size: 0.68rem; color: #94a3b8; margin-top: 4px; }
+    .ps-meta { font-size: 0.65rem; color: #64748b; margin-top: 2px; }
+    .ps-details { margin-top: 8px; font-size: 0.82rem; color: #94a3b8; }
+    .ps-details summary { cursor: pointer; font-weight: 600; color: #cbd5e1; padding: 6px 0; }
+    .ps-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.78rem; }
+    .ps-table th, .ps-table td {
+      padding: 6px 8px; text-align: left; border-bottom: 1px solid #1e293b; color: #cbd5e1;
+    }
+    .ps-table th { color: #64748b; font-weight: 600; font-size: 0.7rem; }
+    .ps-note { font-size: 0.7rem; color: #64748b; margin-top: 10px; line-height: 1.4; }
 
     /* 预测仪表盘 */
     .pred-dashboard { margin-bottom: 32px; }

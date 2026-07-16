@@ -22,6 +22,10 @@ import { formatDataQualityGateMarkdown, nonActionableAdvice } from './data-quali
 import type { DualScoreVerdict } from './dual-score.js';
 import { formatDualScoreMarkdown } from './dual-score.js';
 import { formatQuantScoreMarkdown } from '../indicators/quant-score.js';
+import type { PositionRecommendation } from './position-recommend.js';
+import { formatPositionMarkdown } from './position-recommend.js';
+import type { PredictionTrackStats } from './prediction-track.js';
+import { formatPredictionTrackMarkdown } from './prediction-track.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -31,6 +35,8 @@ export interface ReportMarkdownExtras {
   longTermOutlook?: LongTermOutlook;
   dataQualityGate?: DataQualityGate;
   dualVerdict?: DualScoreVerdict;
+  positionRec?: PositionRecommendation;
+  predictionTrack?: PredictionTrackStats;
 }
 
 function dirText(d: string | undefined): string {
@@ -88,6 +94,16 @@ export function formatReportMarkdown(
 
   if (overall?.quantFactors) {
     lines.push(formatQuantScoreMarkdown(overall.quantFactors, overall.quantScore));
+  }
+
+  const pos = extras?.positionRec;
+  if (pos) {
+    lines.push(formatPositionMarkdown(pos));
+  }
+
+  const predTrack = extras?.predictionTrack;
+  if (predTrack) {
+    lines.push(formatPredictionTrackMarkdown(predTrack));
   }
 
   const macro = extras?.macroRegime;

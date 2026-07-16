@@ -39,7 +39,9 @@ export function outlookCommand(options: { json: boolean; md: boolean }): number 
   } catch { /* ignore */ }
 
   const macroRegime = detectMacroRegime(report.marketData, goldDeviation);
-  const outlook = report.longTermOutlook ?? buildLongTermOutlook({
+  const priceHistory = new GoldPricesRepo(db).getRecent(800);
+  // 始终用最新规则重算；上一份 outlook 仅作平滑
+  const outlook = buildLongTermOutlook({
     technical: report.technical,
     fundamental: report.fundamental,
     sentiment: report.sentiment,
@@ -47,6 +49,8 @@ export function outlookCommand(options: { json: boolean; md: boolean }): number 
     overallScore: report.overall.score,
     overallDirection: report.overall.direction,
     macroRegime,
+    priceHistory,
+    previousOutlook: report.longTermOutlook ?? null,
   });
 
   if (options.json) {

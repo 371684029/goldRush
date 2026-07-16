@@ -42,6 +42,8 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 5. **置信度**：A 级单源 **72**；伦敦金字段权重 50%；锚定一致时 LLM 权重 0.2。
 6. **门禁**（`data-quality-gate.ts`）：**勿用 conf&lt;55 硬拦**。红档=无金价 / 锚定偏差&gt;3% / conf&lt;35 → 关闭操作结论；黄档可出报告；绿档 conf≥70 且锚定贴合。
 7. **双打分**（`dual-score.ts`）：LLM 分与量化分**始终并排**；`|Δ|&gt;15` 或弱一致性 → **操作弃权（维持定投）**，不抬某一侧权重；`calibrate` 分轨统计谁更准；量化因子 `event_heat` 默认 0，无效因子可在 `DEFAULT_WEIGHTS` 置 0。
+8. **长期 1/3/5 年**（`long-term-outlook.ts`）：**配置向、慢变量主导**；3/5 年与当日 overall **脱钩**；反驳多年档惩罚封顶；累计区间硬顶 ±35%；`confidence=low` 不展示点位式累计%；相对上一 outlook **平滑**。完整说明：`docs/LONG-TERM-OUTLOOK.md`。命令：`outlook` / `outlook --md`（按最新 analysis 用新规则重算，不必等完整 analysis）。
+9. **仓位推荐 + 预测对错**（`position-recommend.ts` / `prediction-track.ts`）：相对「计划黄金仓」0–100%（非杠杆）；门禁红 ≤35%、双分冲突 ≤50%；每次 analysis 刷新 `docs/goldrush-stats-latest.json`（5 日方向命中、分桶、明细）。完整说明：`docs/POSITION-AND-TRACK.md`。Web：`server.cjs` 首页/文章页面板。
 
 ### 出站网络现状（生产机实测，会变）
 | 源 | 状态 | 用途 |
@@ -104,6 +106,13 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 - **Web**：`server.cjs` 双分横幅 / 冲突时「维持定投」  
 - **校准**：`calibrate` LLM 分桶 + 量化分桶 + 方向命中 + 冲突日统计  
 - 完整说明：**`docs/DUAL-SCORE.md`**
+
+### 仓位推荐与预测对错（analysis 附带）
+- **仓位**：`recommendPosition` → MD `## 📦 当前仓位推荐`；相对计划仓，非杠杆；红档/双分冲突收紧上限  
+- **对错**：`buildPredictionTrackStats` → `docs/goldrush-stats-latest.json` + MD `## 📊 历史预测对错`  
+- **Web**：首页/文章页解析 MD 仓位小节 + 读取 stats JSON 展示命中率等统计  
+- **完整说明**：**`docs/POSITION-AND-TRACK.md`**  
+- **测试**：`test/position-recommend.test.ts`、`test/prediction-track.test.ts`
 
 ### DB schema
 ```sql

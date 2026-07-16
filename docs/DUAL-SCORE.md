@@ -3,6 +3,8 @@
 > 更新：2026-07-15  
 > 目标：**两套独立分数并存、可校准、冲突可解释**，不是合成一个黑箱分，也不是冲突时抬某一侧权重。
 
+**相关**：`IMPROVEMENTS.md`、`AGENTS.md`、`docs/POSITION-AND-TRACK.md`（冲突 → 仓位上限 50%）、`docs/DATA-QUALITY.md`。
+
 ---
 
 ## 1. 架构

@@ -100,7 +100,7 @@ goldrush flow
 | `goldrush diff <dateA> <dateB>` | 对比两日报告变化 |
 | `goldrush digest --days 7` | 周期摘要（均分、跳变） |
 | `goldrush notify --test` | Webhook 连通性测试 |
-| `goldrush outlook` | 1/3/5 年长期方向预期 |
+| `goldrush outlook` | **1/3/5 年长期档**（配置向·慢变量；`outlook --md` 写 docs） |
 
 ---
 
@@ -231,6 +231,22 @@ Orchestrator (编排层)
 | 策略核心 | 入场点位、止盈止损 | 定投节奏、加减仓 |
 | 风控方式 | 固定止损 3-5% | 估值止盈、仓位管理 |
 
+### 长期档（1 / 3 / 5 年，配置向）
+
+与「中长期周线策略」不同：这是 **多年配置档位**，见 [docs/LONG-TERM-OUTLOOK.md](./docs/LONG-TERM-OUTLOOK.md)。
+
+| 原则 | 说明 |
+|------|------|
+| 慢变量主导 | 3/5 年几乎不吃当日技术与 overall 短线分 |
+| 不吓人 | 累计参考区间硬顶约 ±35%；**low 置信不展示点位** |
+| 可操作 | `overweight` / `neutral` / `underweight` + 定投文案（非清仓） |
+| 防乱翻 | 相对上一报告平滑 |
+
+```bash
+node dist/index.js outlook          # 按最新 analysis 重算
+node dist/index.js outlook --md     # docs/goldrush-outlook-latest.md
+```
+
 ### 双打分制（LLM + 量化并行，健全版）
 
 `analysis` 同时跑**两套独立分数**，始终并排展示，**不合成一个黑箱分**。详见 [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md)。
@@ -258,6 +274,24 @@ Orchestrator (编排层)
 ```
 
 量化因子权重：`src/indicators/quant-score.ts` 的 `DEFAULT_WEIGHTS`（**总和=1.0**；`event_heat` 默认 **0**；无效因子可置 0 后归一）。
+
+### 仓位推荐 + 历史预测对错（Web 日报）
+
+完整说明见 **[docs/POSITION-AND-TRACK.md](./docs/POSITION-AND-TRACK.md)**。
+
+`analysis --md` 额外输出两块，并写入供 Web 读取：
+
+| 功能 | 模块 | 展示 |
+|------|------|------|
+| **当前仓位推荐** | `position-recommend.ts` | 相对计划黄金仓 0–100%；定投层/波段层；门禁红上限 35%、双分冲突 ≤50% |
+| **历史预测对错** | `prediction-track.ts` | LLM/量化 5 日方向命中、高/低分段涨概率、冲突日、分桶表、近 12 日明细 |
+
+- JSON：`docs/goldrush-stats-latest.json`（每次 analysis 刷新）
+- Web 首页：统计卡「LLM命中 / 量化命中 / 建议仓位」+ 面板
+- Web 文章页：预测仪表盘下方同款面板
+- 旧日报无仓位小节时：Web 按分数**粗推**档位（标注旧报告）
+
+> 仓位百分比均相对于你预设的「黄金计划仓」=100%，不是总资产杠杆；命中率非业绩承诺。
 
 ### 回测校准闭环（分轨）
 
@@ -443,6 +477,8 @@ npm test
 | 文档 | 内容 |
 |------|------|
 | [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md) | **双打分机制**（冲突规则、分轨校准、因子） |
+| [docs/LONG-TERM-OUTLOOK.md](./docs/LONG-TERM-OUTLOOK.md) | **1/3/5 年长期档**（慢变量、配置向、防吓人区间） |
+| [docs/POSITION-AND-TRACK.md](./docs/POSITION-AND-TRACK.md) | **仓位推荐 + 历史预测对错**（Web 统计面板） |
 | [docs/DATA-QUALITY.md](./docs/DATA-QUALITY.md) | **数据质量**（零价/门禁/锚定/Web 色点） |
 | [docs/FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
 | [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) | 优化路线图（五维度 + 完成状态） |

@@ -67,4 +67,42 @@ describe('formatReportMarkdown', () => {
     expect(md).toContain('N/A');
     expect(md).toContain('不构成投资建议');
   });
+
+  it('可嵌入仓位推荐与预测对错小节', () => {
+    const md = formatReportMarkdown(buildReport(), 'all', {
+      positionRec: {
+        targetPct: 55,
+        coreSharePct: 75,
+        satelliteSharePct: 25,
+        label: '标配',
+        emoji: '🟡',
+        headline: '标配附近：纪律定投为主',
+        action: '建议相对计划仓约 55%',
+        reasons: ['参考 LLM 分 64'],
+        constraints: [],
+        tilt: 'hold',
+      },
+      predictionTrack: {
+        asOf: '2026-07-16',
+        windowDays: 90,
+        sampleEligible: 5,
+        llm: { hits: 3, total: 4, hitRate: 75 },
+        quant: { hits: 0, total: 0, hitRate: null },
+        highScoreUpRate: 60,
+        highScoreN: 3,
+        lowScoreUpRate: null,
+        lowScoreN: 0,
+        conflictDays: 0,
+        conflictFollowQuantHits: 0,
+        conflictFollowLlmHits: 0,
+        buckets: [],
+        recent: [],
+        summary: 'LLM 方向命中 75%',
+      },
+    });
+    expect(md).toContain('## 📦 当前仓位推荐');
+    expect(md).toContain('55%');
+    expect(md).toContain('## 📊 历史预测对错');
+    expect(md).toContain('75%');
+  });
 });

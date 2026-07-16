@@ -55,6 +55,17 @@ import {
   formatDualScoreConsole,
   type DualScoreVerdict,
 } from '../utils/dual-score.js';
+import {
+  recommendPosition,
+  formatPositionConsole,
+  type PositionRecommendation,
+} from '../utils/position-recommend.js';
+import {
+  buildPredictionTrackStats,
+  savePredictionTrackJson,
+  formatPredictionTrackConsole,
+  type PredictionTrackStats,
+} from '../utils/prediction-track.js';
 import { formatQuantScoreMarkdown } from '../indicators/quant-score.js';
 
 export async function analysisCommand(options: {
@@ -337,6 +348,19 @@ export async function analysisCommand(options: {
   console.log(`  🌐 宏观阶段: ${formatMacroRegimeLine(macroRegime)}`);
 
   const priceHistory = priceRepo.getRecent(800);
+  // 读取最近报告的长期档，用于平滑防日度乱翻
+  let previousOutlook: import('../types/analysis.js').LongTermOutlook | null = null;
+  try {
+    for (const row of reportsRepo.getRecent(21)) {
+      if (row.date >= today) continue;
+      const prev = parseReportJson(row.reportJson);
+      if (prev?.longTermOutlook?.horizons?.length === 3) {
+        previousOutlook = prev.longTermOutlook;
+        break;
+      }
+    }
+  } catch { /* ignore */ }
+
   const longTermOutlook = buildLongTermOutlook({
     technical: report.technical,
     fundamental: report.fundamental,
@@ -346,10 +370,37 @@ export async function analysisCommand(options: {
     overallDirection: report.overall.direction,
     macroRegime,
     priceHistory,
+    previousOutlook,
   });
   report.longTermOutlook = longTermOutlook;
   report.macroRegime = macroRegime;
   report.causalChains = causalChains;
+
+  // 当前仓位推荐（相对计划黄金仓）
+  const primaryHorizon = longTermOutlook?.horizons?.find(h => h.years === 3)
+    ?? longTermOutlook?.horizons?.[0];
+  const positionRec = recommendPosition({
+    llmScore: report.overall.score,
+    quantScore: report.overall.quantScore ?? null,
+    dataActionable: dataQualityGate.actionable,
+    dualPolicy: dualVerdict.actionPolicy,
+    flowScore: flowSignal?.overallScore ?? null,
+    longTermStance: primaryHorizon?.allocationStance ?? null,
+    consistencyLevel: dimConsistency.level,
+    direction: report.overall.direction,
+  });
+  console.log(formatPositionConsole(positionRec));
+
+  // 历史预测对错统计 → docs/goldrush-stats-latest.json（Web 首页/文章页）
+  let predictionTrack: PredictionTrackStats | null = null;
+  try {
+    predictionTrack = buildPredictionTrackStats(db, 90, 5);
+    const statsPath = savePredictionTrackJson(predictionTrack);
+    console.log(formatPredictionTrackConsole(predictionTrack));
+    console.log(`  💾 预测对错统计已写入: ${statsPath}`);
+  } catch (err) {
+    console.warn('  ⚠️ 预测对错统计失败:', err instanceof Error ? err.message : err);
+  }
 
   let similarPatterns: PatternMatch[] = preSimilar;
   if (similarPatterns.length > 0) {
@@ -383,6 +434,8 @@ export async function analysisCommand(options: {
     longTermOutlook,
     dataQualityGate,
     dualVerdict,
+    positionRec,
+    predictionTrack: predictionTrack ?? undefined,
   };
 
   // 输出报告
@@ -568,6 +621,8 @@ function printReport(
     longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
     dataQualityGate?: DataQualityGate;
     dualVerdict?: DualScoreVerdict;
+    positionRec?: PositionRecommendation;
+    predictionTrack?: PredictionTrackStats;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
@@ -579,6 +634,12 @@ function printReport(
   }
   if (extras?.dualVerdict) {
     console.log('\n' + formatDualScoreConsole(extras.dualVerdict));
+  }
+  if (extras?.positionRec) {
+    console.log('\n' + formatPositionConsole(extras.positionRec));
+  }
+  if (extras?.predictionTrack) {
+    console.log('\n' + formatPredictionTrackConsole(extras.predictionTrack));
   }
 
   const bd = scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
