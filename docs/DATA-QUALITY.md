@@ -1,7 +1,7 @@
 # GoldRush 数据质量：事故复盘与防线
 
 > 更新：2026-07-15（含门禁、锚定、东财 GLD/PBOC、Web 色点）  
-> 关联：`IMPROVEMENTS.md` 第六～十一轮、`AGENTS.md`、`docs/DUAL-SCORE.md`、`docs/POSITION-AND-TRACK.md`（红档→仓位上限）、`CORRECTNESS-SPEC.md`
+> 关联：`IMPROVEMENTS.md` 第六～十三轮、`AGENTS.md`、`docs/DUAL-SCORE.md`、`docs/POSITION-AND-TRACK.md`（红档→仓位上限）、`docs/ROADMAP-FINENG.md`（新鲜度 SLA 规划）、`CORRECTNESS-SPEC.md`
 
 ---
 
@@ -192,7 +192,8 @@ console.log('lbma', h.length, h.slice(-2));
 | GLD 持仓吨数 | ✅ 东财新闻解析 SPDR 吨数（现网） | 样本少时粗判；可继续扩历史 |
 | PBOC 月度吨数 | ✅ 东财搜索「中国央行黄金储备」 | 月更，连续增持月数可再校准 |
 | FRED 利率序列 | 常超时 | 国内镜像或新浪/东方财富利率接口 |
-| 搜索原文存档 | 未做 | OPTIMIZATION P0「搜索源存档」 |
+| 搜索原文存档 | ✅ `docs/search-raw/`（30 天） | snippet 自动对账见 ROADMAP-FINENG 包 H |
+| 数据新鲜度 SLA | 规划 | 金价/快照年龄 → 门禁（ROADMAP-FINENG 包 D） |
 | 当日错误 MD 报告 | 旧稿仍在 docs/ | 跑完 `analysis --md` 覆盖 |
 
 ---

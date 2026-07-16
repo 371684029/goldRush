@@ -3,7 +3,7 @@
 > 更新：2026-07-15  
 > 目标：**两套独立分数并存、可校准、冲突可解释**，不是合成一个黑箱分，也不是冲突时抬某一侧权重。
 
-**相关**：`IMPROVEMENTS.md`、`AGENTS.md`、`docs/POSITION-AND-TRACK.md`（冲突 → 仓位上限 50%）、`docs/DATA-QUALITY.md`。
+**相关**：`IMPROVEMENTS.md`、`AGENTS.md`、`docs/POSITION-AND-TRACK.md`（冲突 → 仓位上限 50%）、`docs/DATA-QUALITY.md`、**`docs/ROADMAP-FINENG.md`**（禁止狂调权重、因子 IC 规划）。
 
 ---
 
@@ -117,3 +117,15 @@ node dist/index.js calibrate --days 90 --detail
 - [ ] MD 含 `## ⚖️ 双打分机制`  
 - [ ] Web 文章页有双分横幅（新报告更完整）  
 - [ ] 因子表不展示 weight=0 的 event_heat  
+
+---
+
+## 8. 后续（规划，勿违背）
+
+| 可做 | 不做（反模式） |
+|------|----------------|
+| 因子 IC 体检后**降权/下线**失效因子（`ROADMAP-FINENG` 包 E） | 因短期命中率**抬高** LLM 或量化单侧权重 |
+| Walk-forward 分轨命中（包 F） | 冲突时「站队」合成一个黑箱分 |
+| 冲突日统计跟 Q / 跟 L（已有 prediction-track） | 用深度学习替代双分纪律 |
+
+完整说明：[ROADMAP-FINENG.md](./ROADMAP-FINENG.md) §2.2、§5。

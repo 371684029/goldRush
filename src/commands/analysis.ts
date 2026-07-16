@@ -33,7 +33,16 @@ import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js
 import { buildScenarioFeatureDraft, draftToScenarioFeature } from '../utils/scenario-feature-builder.js';
 import { computeScenarioProbabilities } from '../utils/scenario-probability.js';
 import { matchCausalChains, formatCausalChainsConsole } from '../utils/gold-causal-rules.js';
-import { scoreToAdvice, checkConsistency, consistencyEmoji } from '../utils/plain-advice.js';
+import {
+  checkConsistency,
+  consistencyEmoji,
+  resolveOperationalAdvice,
+} from '../utils/plain-advice.js';
+import {
+  buildReliabilityCard,
+  formatReliabilityConsole,
+  type ReliabilityCard,
+} from '../utils/reliability-card.js';
 import type { OrchestrateOptions } from '../agents/orchestrator.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
@@ -58,6 +67,7 @@ import {
 import {
   recommendPosition,
   formatPositionConsole,
+  extractPreviousTargetPct,
   type PositionRecommendation,
 } from '../utils/position-recommend.js';
 import {
@@ -376,9 +386,21 @@ export async function analysisCommand(options: {
   report.macroRegime = macroRegime;
   report.causalChains = causalChains;
 
-  // 当前仓位推荐（相对计划黄金仓）
+  // 当前仓位推荐（相对计划黄金仓 · 风险约束 v2：波动/回撤/日平滑）
   const primaryHorizon = longTermOutlook?.horizons?.find(h => h.years === 3)
     ?? longTermOutlook?.horizons?.[0];
+  const closesForRisk = forwardFillCloses(priceHistory);
+  let previousTargetPct: number | null = null;
+  try {
+    for (const row of reportsRepo.getRecent(21)) {
+      if (row.date >= today) continue;
+      const prev = parseReportJson(row.reportJson);
+      if (!prev) continue;
+      previousTargetPct = extractPreviousTargetPct(prev)
+        ?? (typeof prev.overall?.positionTargetPct === 'number' ? prev.overall.positionTargetPct : null);
+      if (previousTargetPct != null) break;
+    }
+  } catch { /* ignore */ }
   const positionRec = recommendPosition({
     llmScore: report.overall.score,
     quantScore: report.overall.quantScore ?? null,
@@ -388,7 +410,10 @@ export async function analysisCommand(options: {
     longTermStance: primaryHorizon?.allocationStance ?? null,
     consistencyLevel: dimConsistency.level,
     direction: report.overall.direction,
+    closes: closesForRisk,
+    previousTargetPct,
   });
+  report.overall.positionTargetPct = positionRec.targetPct;
   console.log(formatPositionConsole(positionRec));
 
   // 历史预测对错统计 → docs/goldrush-stats-latest.json（Web 首页/文章页）
@@ -401,6 +426,23 @@ export async function analysisCommand(options: {
   } catch (err) {
     console.warn('  ⚠️ 预测对错统计失败:', err instanceof Error ? err.message : err);
   }
+
+  // 可信度一览：门禁+双分+一致+校准+滚动命中 → 评分区间 + TL;DR
+  const calCtx = report.overall.calibration;
+  const reliabilityCard = buildReliabilityCard({
+    llmScore: report.overall.score,
+    direction: report.overall.direction,
+    quantScore: report.overall.quantScore ?? null,
+    dataGate: dataQualityGate,
+    dual: dualVerdict,
+    consistency: dimConsistency,
+    calibrationSampleSize: calCtx?.sampleSize ?? null,
+    calibrationBias: calCtx?.systematicBias ?? null,
+    position: positionRec,
+    trackHitRate: predictionTrack?.llm.hitRate ?? null,
+    trackSampleSize: predictionTrack?.llm.total ?? null,
+  });
+  console.log(formatReliabilityConsole(reliabilityCard));
 
   let similarPatterns: PatternMatch[] = preSimilar;
   if (similarPatterns.length > 0) {
@@ -436,6 +478,8 @@ export async function analysisCommand(options: {
     dualVerdict,
     positionRec,
     predictionTrack: predictionTrack ?? undefined,
+    reliabilityCard,
+    consistency: dimConsistency,
   };
 
   // 输出报告
@@ -525,6 +569,92 @@ async function runSmartAnalysis(
     scoreBreakdown,
   );
 
+  // Smart 也补齐：门禁 / 双分 / 一致性 / 仓位 / 可信度 / 预测对错（零 LLM，本地规则）
+  const conf = report.dataQuality?.overallConfidence ?? 70;
+  const dataQualityGate = evaluateDataQualityGate({
+    marketData: report.marketData,
+    overallConfidence: conf,
+    warnings: report.dataQuality?.warnings ?? [],
+  });
+  const dimConsistency = checkConsistency([
+    { name: '技术面', score: report.technical.score },
+    { name: '基本面', score: report.fundamental.score },
+    { name: '情绪面', score: report.sentiment.score },
+    {
+      name: '基金面',
+      score: report.fund?.valuation?.level === 'low' ? 70
+        : report.fund?.valuation?.level === 'high' ? 25 : 50,
+    },
+  ]);
+  const dualVerdict = evaluateDualScore(
+    report.overall.score,
+    report.overall.quantScore,
+    {
+      consistencyWeak: dimConsistency.level === 'weak',
+      dataActionable: dataQualityGate.actionable,
+    },
+  );
+  if (!dataQualityGate.actionable) {
+    applyNonActionableOverlay(report, dataQualityGate);
+  } else if (dualVerdict.actionOverride) {
+    applyDualHoldOverlay(report, dualVerdict);
+  }
+
+  const primaryHorizon = report.longTermOutlook?.horizons?.find(h => h.years === 3)
+    ?? report.longTermOutlook?.horizons?.[0];
+  const closesForRisk = forwardFillCloses(priceRepo.getRecent(120));
+  const previousTargetPct = extractPreviousTargetPct(previous)
+    ?? (typeof previous.overall?.positionTargetPct === 'number' ? previous.overall.positionTargetPct : null);
+  const positionRec = recommendPosition({
+    llmScore: report.overall.score,
+    quantScore: report.overall.quantScore ?? null,
+    dataActionable: dataQualityGate.actionable,
+    dualPolicy: dualVerdict.actionPolicy,
+    flowScore: null,
+    longTermStance: primaryHorizon?.allocationStance ?? null,
+    consistencyLevel: dimConsistency.level,
+    direction: report.overall.direction,
+    closes: closesForRisk,
+    previousTargetPct,
+  });
+  report.overall.positionTargetPct = positionRec.targetPct;
+
+  let predictionTrack: PredictionTrackStats | null = null;
+  try {
+    predictionTrack = buildPredictionTrackStats(db, 90, 5);
+    savePredictionTrackJson(predictionTrack);
+  } catch (err) {
+    console.warn('  ⚠️ Smart 预测对错统计失败:', err instanceof Error ? err.message : err);
+  }
+
+  const calCtx = report.overall.calibration;
+  const reliabilityCard = buildReliabilityCard({
+    llmScore: report.overall.score,
+    direction: report.overall.direction,
+    quantScore: report.overall.quantScore ?? null,
+    dataGate: dataQualityGate,
+    dual: dualVerdict,
+    consistency: dimConsistency,
+    calibrationSampleSize: calCtx?.sampleSize ?? null,
+    calibrationBias: calCtx?.systematicBias ?? null,
+    position: positionRec,
+    trackHitRate: predictionTrack?.llm.hitRate ?? null,
+    trackSampleSize: predictionTrack?.llm.total ?? null,
+  });
+
+  const reportExtras = {
+    macroRegime,
+    judgeVerdict,
+    scoreBreakdown,
+    longTermOutlook: report.longTermOutlook,
+    dataQualityGate,
+    dualVerdict,
+    positionRec,
+    predictionTrack: predictionTrack ?? undefined,
+    reliabilityCard,
+    consistency: dimConsistency,
+  };
+
   reportsRepo.insert({
     date: today,
     horizon: options.horizon,
@@ -545,12 +675,14 @@ async function runSmartAnalysis(
     longTermOutlook: report.longTermOutlook,
   });
 
-  console.log('  ✅ Smart 简版报告已生成（零 LLM）');
+  console.log('  ✅ Smart 简版报告已生成（零 LLM，已补仓位/可信度/对错统计）');
+  console.log(formatReliabilityConsole(reliabilityCard));
+  console.log(formatPositionConsole(positionRec));
 
   if (options.json) {
     console.log(JSON.stringify(wrapAnalysisOutputV1(manifest, report), null, 2));
   } else {
-    printReport(report, options.horizon, scoreBreakdown, { macroRegime });
+    printReport(report, options.horizon, scoreBreakdown, reportExtras);
   }
 
   if (options.save) {
@@ -565,8 +697,11 @@ async function runSmartAnalysis(
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const filename = `${docsDir}/goldrush-analysis-${today}.md`;
-    // smart 路径无 dualVerdict 时仍可导出
-    fs.writeFileSync(filename, formatReportMarkdown(report, options.horizon, { macroRegime, scoreBreakdown }), 'utf-8');
+    fs.writeFileSync(
+      filename,
+      formatReportMarkdown(report, options.horizon, reportExtras),
+      'utf-8',
+    );
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
   }
 
@@ -623,12 +758,16 @@ function printReport(
     dualVerdict?: DualScoreVerdict;
     positionRec?: PositionRecommendation;
     predictionTrack?: PredictionTrackStats;
+    reliabilityCard?: ReliabilityCard;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
 
   console.log(header('🎯 GoldRush 综合分析报告', formatNow()));
 
+  if (extras?.reliabilityCard) {
+    console.log('\n' + formatReliabilityConsole(extras.reliabilityCard));
+  }
   if (extras?.dataQualityGate) {
     console.log('\n' + formatDataQualityGateConsole(extras.dataQualityGate));
   }
@@ -666,28 +805,28 @@ function printReport(
     console.log('\n' + formatLongTermOutlookConsole(extras.longTermOutlook));
   }
 
-  // 综合研判 + 人话建议
+  // 综合研判 + 统一操作建议（resolveOperationalAdvice 单一出口）
   const scoreDisplay = overall?.score ?? 'N/A';
   const directionDisplay = overall?.direction ?? 'neutral';
   const gate = extras?.dataQualityGate;
   const dual = extras?.dualVerdict;
-  let advice = overall?.score != null ? scoreToAdvice(overall.score) : null;
-  if (gate && !gate.actionable) {
-    const na = nonActionableAdvice();
-    advice = {
-      label: '数据不可用',
-      emoji: '🔴',
-      headline: na.headline,
-      action: na.action,
-    };
-  } else if (dual?.actionOverride) {
-    advice = {
-      label: '双分冲突·弃权',
-      emoji: '⚖️',
-      headline: dual.actionOverride.headline,
-      action: dual.actionOverride.action,
-    };
-  }
+  const advice = resolveOperationalAdvice({
+    llmScore: overall?.score,
+    direction: overall?.direction,
+    dataActionable: gate?.actionable,
+    dualActionOverride: dual?.actionOverride ?? null,
+    dualPolicy: dual?.actionPolicy ?? null,
+    position: extras?.positionRec
+      ? {
+          headline: extras.positionRec.headline,
+          action: extras.positionRec.action,
+          emoji: extras.positionRec.emoji,
+          label: extras.positionRec.label,
+          tilt: extras.positionRec.tilt,
+          targetPct: extras.positionRec.targetPct,
+        }
+      : null,
+  });
   console.log(`\n  综合研判(LLM): ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
   if (overall?.score) {
     console.log(`  ${scoreBar(overall.score)}`);
@@ -709,9 +848,10 @@ function printReport(
   }
   if (advice) {
     console.log(`  💡 ${advice.emoji} ${advice.action}`);
-    if (gate && !gate.actionable) {
+    console.log(`     [${advice.source}] ${advice.headline}`);
+    if (advice.source === 'data_gate') {
       console.log(chalk.red(`  ⛔ ${advice.headline}`));
-    } else if (dual?.actionOverride) {
+    } else if (advice.source === 'dual_conflict') {
       console.log(chalk.yellow(`  ⚖️ ${advice.headline}`));
     }
   }

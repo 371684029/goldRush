@@ -202,6 +202,8 @@ export interface GoldAnalysisReport {
       weight: number;
       contribution: number;
     }>;
+    /** 当日建议目标仓 %（相对计划仓，供次日日平滑） */
+    positionTargetPct?: number;
   };
   /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
   longTermOutlook?: LongTermOutlook;

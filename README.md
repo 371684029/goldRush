@@ -279,6 +279,20 @@ node dist/index.js outlook --md     # docs/goldrush-outlook-latest.md
 
 完整说明见 **[docs/POSITION-AND-TRACK.md](./docs/POSITION-AND-TRACK.md)**。
 
+### 可信度一览与评分区间
+
+- 日报 / Web 顶部：**可信度 0–100**（操作可信，非涨跌准确率）+ **评分区间**（如 55–67）+ **三行看懂**
+- 合成因子：门禁、双分、四维一致、校准样本、滚动命中
+- 搜索原文：`docs/search-raw/YYYY-MM-DD.json`（30 天，审计 LLM 抽价）
+
+完整说明见 **[docs/RELIABILITY.md](./docs/RELIABILITY.md)**。
+
+### 后续规划（金融工程 / 业界）
+
+风险约束仓位 v2、纸面 MaxDD、Regime 命中、因子 IC、walk-forward 等 **规划与反模式** 见：
+
+→ **[docs/ROADMAP-FINENG.md](./docs/ROADMAP-FINENG.md)** · 摘要索引 [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) v1.6
+
 `analysis --md` 额外输出两块，并写入供 Web 读取：
 
 | 功能 | 模块 | 展示 |
@@ -431,7 +445,8 @@ goldRush/
 ├── data/goldrush.db          # SQLite (自动创建)
 ├── docs/                     # 报告存档
 │   ├── FLOW-PLAN.md          # 主力监测设计规划
-│   └── OPTIMIZATION.md       # 优化路线图 (五维度)
+│   ├── OPTIMIZATION.md       # 优化路线图 (五维度)
+│   └── ROADMAP-FINENG.md     # 金融工程/业界借鉴后续
 ├── scripts/daily-analysis.sh # 每日定时分析 (含 flow --md)
 └── package.json
 ```
@@ -479,9 +494,11 @@ npm test
 | [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md) | **双打分机制**（冲突规则、分轨校准、因子） |
 | [docs/LONG-TERM-OUTLOOK.md](./docs/LONG-TERM-OUTLOOK.md) | **1/3/5 年长期档**（慢变量、配置向、防吓人区间） |
 | [docs/POSITION-AND-TRACK.md](./docs/POSITION-AND-TRACK.md) | **仓位推荐 + 历史预测对错**（Web 统计面板） |
+| [docs/RELIABILITY.md](./docs/RELIABILITY.md) | **可信度一览 / 评分区间 / 搜索原文存档** |
+| [docs/ROADMAP-FINENG.md](./docs/ROADMAP-FINENG.md) | **金融工程 + 业界借鉴后续包**（仓位 v2 / MaxDD / IC…） |
 | [docs/DATA-QUALITY.md](./docs/DATA-QUALITY.md) | **数据质量**（零价/门禁/锚定/Web 色点） |
 | [docs/FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
-| [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) | 优化路线图（五维度 + 完成状态） |
+| [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) | 优化路线图（五维度 + 完成状态；链到 FINENG） |
 | [AGENTS.md](./AGENTS.md) | 开发/运维约定（硬规则、出站源） |
 | [IMPROVEMENTS.md](./IMPROVEMENTS.md) | 多轮体检与修复存档 |
 | [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率与风险暴露规范 |

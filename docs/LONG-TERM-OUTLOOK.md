@@ -3,7 +3,7 @@
 > 更新：2026-07-16  
 > 目标：**提高可靠性与可解释性**（配置向），**不**追求假精确的多年点位命中率。
 
-**相关**：`IMPROVEMENTS.md` 第十轮、`AGENTS.md`、`README` 命令 `outlook`、`docs/POSITION-AND-TRACK.md`（`allocationStance` 微调当日仓位）。
+**相关**：`IMPROVEMENTS.md` 第十轮、`AGENTS.md`、`README` 命令 `outlook`、`docs/POSITION-AND-TRACK.md`（`allocationStance` 微调当日仓位）、**`docs/ROADMAP-FINENG.md`**（不追求点位 KPI、配置向与反模式一致）。
 
 ---
 

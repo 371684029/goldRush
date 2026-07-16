@@ -287,6 +287,57 @@ UPDATE gold_prices SET london_close=NULL WHERE london_close=0;
 
 ---
 
+## 十六、第十二轮（可信度 + 评分区间 + 搜索存档 · 简洁）
+
+| 项 | 落地 |
+|----|------|
+| 可信度卡 | `src/utils/reliability-card.ts`：五因子加权 → 0–100；tier high/medium/low/blocked；评分区间半宽 |
+| 三行 TL;DR | 研判区间 / 仓位 / 可信度注意 — MD 最前 + Web `rel-panel` |
+| 维度一致 | MD 综合研判节展示 `checkConsistency` 摘要 |
+| 搜索存档 | `search-raw-archive.ts` → `docs/search-raw/YYYY-MM-DD.json`，30 天滚动；采集后、LLM 前写入 |
+| Web | 首页/文章顶栏可信度；旧报粗推标「粗推」 |
+| 文档 | **`docs/RELIABILITY.md`**；OPTIMIZATION v1.5 |
+
+---
+
+## 十七、第十三轮（A：统一操作建议 + Smart 补齐 + Web 折叠）
+
+| 项 | 落地 |
+|----|------|
+| 统一出口 | `resolveOperationalAdvice`：门禁 → 双分弃权 → 仓位 → 分数 |
+| 接入 | `analysis` printReport、`report-md` 综合研判、`server.cjs` resolveAdvice |
+| Smart | 平稳日补算门禁/双分/一致性/仓位/可信度/prediction-track |
+| Web | 首屏：可信度+分数操作+仓位+3 命中；门禁/双分/情景/明细默认折叠 |
+| 测试 | `test/operational-advice.test.ts` |
+
+---
+
+## 十八、文档轮：金融工程 / 业界借鉴入库（2026-07-16）
+
+| 项 | 落地 |
+|----|------|
+| 专用文档 | **`docs/ROADMAP-FINENG.md`**：能力对照、四层架构、金融工程方向、开源/投顾借鉴、P0–P2 包、反模式、落地状态表 |
+| 索引 | `OPTIMIZATION.md` v1.6 第四轮路径 + §7.1 摘要；`README` / `AGENTS` #12；仓位/可信度/双分/数据质量/长期 文档互链 |
+| 代码 | 本轮 **无代码变更**，仅维护文档 |
+
+建议下一实现包：ROADMAP-FINENG **包 A 风险约束仓位 v2**。
+
+---
+
+## 十九、第十四轮（风险约束仓位 v2）
+
+| 项 | 落地 |
+|----|------|
+| 算法 | 近20日年化波动缩放、近60日回撤缩放、相对昨日 ±10 点日平滑 |
+| 落库 | `overall.positionTargetPct` 供次日平滑 |
+| 展示 | MD 风险角标/摘要；Web 仓位面板角标 |
+| 测试 | `test/position-recommend.test.ts` 扩展 |
+| 文档 | `POSITION-AND-TRACK`、`ROADMAP-FINENG` 包 A ✅ |
+
+人话：**涨跌晃得厉害自动少拿一点；今天建议别比昨天猛跳。**
+
+---
+
 ## 文档索引（维护约定）
 
 | 变更类型 | 应更新的文档 |
@@ -295,7 +346,9 @@ UPDATE gold_prices SET london_close=NULL WHERE london_close=0;
 | 双打分/校准/因子 | `docs/DUAL-SCORE.md`、`AGENTS.md` 双打分节、`README` 双打分节 |
 | 长期 1/3/5 年 | `docs/LONG-TERM-OUTLOOK.md`、`README` 文档表 |
 | 仓位/预测对错 | **`docs/POSITION-AND-TRACK.md`**、`IMPROVEMENTS.md` 第十一轮、`README`、`AGENTS.md`、`OPTIMIZATION.md` |
+| 可信度/区间/搜索存档 | **`docs/RELIABILITY.md`**、`IMPROVEMENTS.md` 第十二轮、`OPTIMIZATION.md` |
+| 金融工程后续包 / 反模式 | **`docs/ROADMAP-FINENG.md`** 状态表、`OPTIMIZATION.md`、必要时 `POSITION`/`RELIABILITY`/`DUAL-SCORE` |
 | 主力 flow | `docs/FLOW-PLAN.md`、`README` 数据源表 |
 | 一轮修复归档 | `IMPROVEMENTS.md` 追加轮次 |
-| 路线图状态 | `docs/OPTIMIZATION.md` |
+| 路线图状态 | `docs/OPTIMIZATION.md` + `docs/ROADMAP-FINENG.md` §7 |
 

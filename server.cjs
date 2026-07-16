@@ -194,6 +194,14 @@ function extractPositionRecommend(md) {
   const headlineM = body.match(/\*\*结论\*\*[：:]\s*(.+)/);
   const actionM = body.match(/\*\*操作\*\*[：:]\s*(.+)/);
   const tiltM = body.match(/\*\*倾向\*\*[：:]\s*(.+)/);
+  const riskSummaryM = body.match(/\*\*风险摘要\*\*[：:]\s*(.+)/);
+  const volM = body.match(/近20日波动[^：:]*[：:]\s*([\d.]+)%/);
+  const ddM = body.match(/近60日自高点回撤[：:]\s*([\d.]+)%/);
+  const prevM = body.match(/较昨日目标仓[：:]\s*(\d+)%\s*[→\-–]\s*(\d+)%/);
+  const badges = [];
+  for (const b of ['平稳', '偏高波动', '高波动', '近窗回撤', '日调受限']) {
+    if (body.includes(b) || body.includes('`' + b + '`')) badges.push(b);
+  }
   const targetPct = pctM ? parseInt(pctM[1], 10) : null;
   if (targetPct == null) return null;
   const label = labelM ? labelM[1] : '标配';
@@ -216,6 +224,11 @@ function extractPositionRecommend(md) {
     headline: headlineM ? headlineM[1].trim() : '',
     action: actionM ? actionM[1].trim() : '',
     tilt,
+    riskSummary: riskSummaryM ? riskSummaryM[1].trim() : '',
+    vol20AnnPct: volM ? parseFloat(volM[1]) : null,
+    drawdown60Pct: ddM ? parseFloat(ddM[1]) : null,
+    prevTargetPct: prevM ? parseInt(prevM[1], 10) : null,
+    badges,
   };
 }
 
@@ -230,19 +243,133 @@ function loadPredictionStats() {
   }
 }
 
-/** 仓位推荐面板 */
+/**
+ * 从 MD「可信度一览」提取；无小节时用门禁/双分/校准粗推（旧日报兼容）
+ */
+function extractReliabilityCard(md, opts = {}) {
+  const sec = md.match(/##\s*[🛡️\s]*可信度一览([\s\S]*?)(?=\n##\s|$)/);
+  if (sec) {
+    const body = sec[1];
+    const scoreM = body.match(/可信度[高低中等偏]*\s*\*{0,2}(\d{1,3})\/100/);
+    const bandM = body.match(/区间\s*\*{0,2}(\d{1,3})[–\-−](\d{1,3})/);
+    const centerM = body.match(/中心\s*(\d{1,3})/);
+    const labelM = body.match(/(可信度较高|可信度中等|可信度偏低|数据不可操作)/);
+    const tldr = [];
+    const tldrBlock = body.match(/###\s*三行看懂([\s\S]*?)(?=\n###|\n\||\n##|$)/);
+    if (tldrBlock) {
+      for (const m of tldrBlock[1].matchAll(/^\d+\.\s*(.+)$/gm)) {
+        tldr.push(m[1].replace(/\*\*/g, '').trim());
+      }
+    }
+    let score = scoreM ? parseInt(scoreM[1], 10) : null;
+    if (score == null && bandM) score = Math.round((parseInt(bandM[1], 10) + parseInt(bandM[2], 10)) / 2);
+    if (score == null) return null;
+    let tier = 'medium';
+    const label = labelM ? labelM[1] : '可信度中等';
+    if (label.includes('较高')) tier = 'high';
+    else if (label.includes('偏低')) tier = 'low';
+    else if (label.includes('不可操作')) tier = 'blocked';
+    const low = bandM ? parseInt(bandM[1], 10) : Math.max(0, (opts.score ?? score) - 6);
+    const high = bandM ? parseInt(bandM[2], 10) : Math.min(100, (opts.score ?? score) + 6);
+    return {
+      score,
+      tier,
+      label,
+      emoji: tier === 'high' ? '🟢' : tier === 'blocked' ? '🔴' : tier === 'low' ? '🟠' : '🟡',
+      scoreBand: { low, high, center: centerM ? parseInt(centerM[1], 10) : opts.score ?? Math.round((low + high) / 2) },
+      tldr,
+      approx: false,
+    };
+  }
+
+  // 旧日报粗推
+  const gate = opts.qualityGate;
+  const dual = opts.dualScore;
+  const cal = opts.calibration;
+  const center = opts.score != null ? opts.score : 50;
+  let pts = 50;
+  if (gate) {
+    if (!gate.actionable || gate.tier === 'red') pts = 25;
+    else if (gate.tier === 'yellow') pts = 48;
+    else pts = 68;
+  }
+  if (dual?.conflict) pts = Math.min(pts, 40);
+  if (cal?.sample != null && cal.sample < 5) pts = Math.min(pts, 45);
+  else if (cal?.sample != null && cal.sample >= 20) pts = Math.min(100, pts + 8);
+  const half = pts < 40 ? 12 : pts < 55 ? 9 : pts < 70 ? 6 : 4;
+  let tier = 'medium';
+  if (gate && !gate.actionable) tier = 'blocked';
+  else if (pts >= 72) tier = 'high';
+  else if (pts < 50) tier = 'low';
+  const label = tier === 'high' ? '可信度较高' : tier === 'blocked' ? '数据不可操作' : tier === 'low' ? '可信度偏低' : '可信度中等';
+  return {
+    score: pts,
+    tier,
+    label,
+    emoji: tier === 'high' ? '🟢' : tier === 'blocked' ? '🔴' : tier === 'low' ? '🟠' : '🟡',
+    scoreBand: {
+      low: Math.max(0, center - half),
+      high: Math.min(100, center + half),
+      center,
+    },
+    tldr: [
+      `研判 ${Math.max(0, center - half)}–${Math.min(100, center + half)}/100（中心 ${center}）· 旧报告粗推`,
+      opts.positionLine || '仓位见下方面板',
+      `${label} ${pts}/100（旧报告无完整可信度小节）`,
+    ],
+    approx: true,
+  };
+}
+
+/** 可信度一览面板（三行看懂） */
+function renderReliabilityPanel(rel) {
+  if (!rel) return '';
+  const tierClass = `rel-${rel.tier || 'medium'}`;
+  const band = rel.scoreBand || { low: '—', high: '—', center: '—' };
+  const tldrHtml = (rel.tldr || []).slice(0, 3).map((line, i) =>
+    `<div class="rel-tldr-line"><span class="rel-n">${i + 1}</span><span>${esc(String(line).replace(/\*\*/g, ''))}</span></div>`
+  ).join('');
+  return `<div class="rel-panel ${tierClass}" role="region" aria-label="可信度一览">
+    <div class="rel-head">
+      <div>
+        <div class="rel-title">🛡️ 可信度一览${rel.approx ? ' <span class="rel-approx">粗推</span>' : ''}</div>
+        <div class="rel-sub">操作可信度 · 非涨跌准确率保证</div>
+      </div>
+      <div class="rel-score-block">
+        <div class="rel-score">${rel.emoji} ${rel.score}<span class="rel-score-unit">/100</span></div>
+        <div class="rel-label">${esc(rel.label)}</div>
+      </div>
+    </div>
+    <div class="rel-band">
+      <span class="rel-band-label">评分区间</span>
+      <strong>${band.low}–${band.high}</strong>
+      <span class="rel-band-center">中心 ${band.center}</span>
+    </div>
+    ${tldrHtml ? `<div class="rel-tldr">${tldrHtml}</div>` : ''}
+  </div>`;
+}
+
+/** 仓位推荐面板（含 v2 风险角标） */
 function renderPositionPanel(pos) {
   if (!pos) return '';
   const core = pos.coreSharePct != null ? pos.coreSharePct : '—';
   const sat = pos.satelliteSharePct != null ? pos.satelliteSharePct : '—';
   const tiltLabel = pos.tilt === 'reduce' ? '偏轻/减仓' : pos.tilt === 'add' ? '可小幅积极' : '维持';
   const barColor = pos.targetPct <= 40 ? '#ef4444' : pos.targetPct >= 70 ? '#22c55e' : '#f59e0b';
+  const riskHot = (pos.badges || []).some(b => /高波动|偏高波动|近窗回撤/.test(b));
+  const badgeHtml = (pos.badges || []).slice(0, 4).map(b => {
+    const hot = /高波动|偏高波动|近窗回撤|日调受限/.test(b);
+    return `<span class="pos-risk-badge${hot ? ' hot' : ''}">${esc(b)}</span>`;
+  }).join('');
+  const riskLine = pos.riskSummary
+    ? `<div class="pos-risk-line${riskHot ? ' hot' : ''}">🛡️ ${esc(pos.riskSummary)}</div>`
+    : (badgeHtml ? `<div class="pos-risk-line">🛡️ 风险约束 v2</div>` : '');
   return `<div class="pos-panel" role="region" aria-label="当前仓位推荐">
     <div class="pos-head">
       <span class="pos-emoji">${pos.emoji}</span>
       <div>
         <div class="pos-title">📦 当前仓位推荐</div>
-        <div class="pos-sub">相对「黄金计划仓」=100% · 非杠杆</div>
+        <div class="pos-sub">相对「黄金计划仓」=100% · 波动/日平滑自动收一收</div>
       </div>
       <div class="pos-pct" style="color:${barColor}">${pos.targetPct}<span class="pos-pct-unit">%</span></div>
     </div>
@@ -252,7 +379,9 @@ function renderPositionPanel(pos) {
       <span class="pos-tag">定投层 ${core}%</span>
       <span class="pos-tag">波段层 ${sat}%</span>
       <span class="pos-tag">${esc(tiltLabel)}</span>
+      ${badgeHtml}
     </div>
+    ${riskLine}
     ${pos.headline ? `<div class="pos-headline">${esc(pos.headline)}</div>` : ''}
     ${pos.action ? `<div class="pos-action">→ ${esc(pos.action)}</div>` : ''}
   </div>`;
@@ -286,19 +415,23 @@ function renderPredictionStatsPanel(stats) {
       <div class="ps-sub">近 ${stats.windowDays ?? 90} 日 · 5 日标签 · 样本 ${stats.sampleEligible ?? '—'} · ${esc(stats.asOf || '')}</div>
     </div>
     ${stats.summary ? `<div class="ps-summary">${esc(stats.summary)}</div>` : ''}
-    <div class="ps-grid">
+    <!-- 默认只展示 3 个核心命中数；其余折叠 -->
+    <div class="ps-grid ps-grid-core">
       <div class="ps-card"><div class="ps-num">${esc(llmRate)}</div><div class="ps-label">LLM 命中</div><div class="ps-meta">${esc(llmN)}</div></div>
       <div class="ps-card"><div class="ps-num">${esc(quantRate)}</div><div class="ps-label">量化命中</div><div class="ps-meta">${esc(quantN)}</div></div>
-      <div class="ps-card"><div class="ps-num">${esc(highRate)}</div><div class="ps-label">高分(≥60) 5日涨</div><div class="ps-meta">n=${stats.highScoreN ?? 0}</div></div>
-      <div class="ps-card"><div class="ps-num">${esc(lowRate)}</div><div class="ps-label">低分(≤40) 5日涨</div><div class="ps-meta">n=${stats.lowScoreN ?? 0}</div></div>
       <div class="ps-card"><div class="ps-num">${stats.conflictDays ?? 0}</div><div class="ps-label">双分冲突日</div><div class="ps-meta">跟Q ${stats.conflictFollowQuantHits ?? 0} / 跟L ${stats.conflictFollowLlmHits ?? 0}</div></div>
     </div>
-    ${bucketRows ? `<details class="ps-details"><summary>评分区间 vs 实际 5 日</summary>
-      <table class="ps-table"><thead><tr><th>区间</th><th>样本</th><th>涨概率</th><th>均涨幅</th></tr></thead><tbody>${bucketRows}</tbody></table>
-    </details>` : ''}
-    ${recentRows ? `<details class="ps-details" open><summary>最近预测明细</summary>
-      <table class="ps-table"><thead><tr><th>日期</th><th>LLM</th><th>量化</th><th>预测</th><th>5日</th><th>对错</th></tr></thead><tbody>${recentRows}</tbody></table>
-    </details>` : ''}
+    <details class="ps-details">
+      <summary>更多统计（高低分涨概率 / 分桶 / 明细）</summary>
+      <div class="ps-grid" style="margin-top:10px">
+        <div class="ps-card"><div class="ps-num">${esc(highRate)}</div><div class="ps-label">高分(≥60) 5日涨</div><div class="ps-meta">n=${stats.highScoreN ?? 0}</div></div>
+        <div class="ps-card"><div class="ps-num">${esc(lowRate)}</div><div class="ps-label">低分(≤40) 5日涨</div><div class="ps-meta">n=${stats.lowScoreN ?? 0}</div></div>
+      </div>
+      ${bucketRows ? `<div class="ps-subhead">评分区间 vs 实际 5 日</div>
+        <table class="ps-table"><thead><tr><th>区间</th><th>样本</th><th>涨概率</th><th>均涨幅</th></tr></thead><tbody>${bucketRows}</tbody></table>` : ''}
+      ${recentRows ? `<div class="ps-subhead">最近预测明细</div>
+        <table class="ps-table"><thead><tr><th>日期</th><th>LLM</th><th>量化</th><th>预测</th><th>5日</th><th>对错</th></tr></thead><tbody>${recentRows}</tbody></table>` : ''}
+    </details>
     <div class="ps-note">&gt;55 记涨、&lt;45 记跌，中间与持平不计命中；非业绩承诺</div>
   </div>`;
 }
@@ -377,11 +510,39 @@ function nonActionableAdviceWeb() {
   };
 }
 
-/** 按门禁覆盖 advice */
-function resolveAdvice(scoreInfo, gate) {
+/**
+ * 统一操作建议（对齐 plain-advice.resolveOperationalAdvice 优先级）
+ * 1 门禁红 2 双分冲突 3 仓位 4 分数
+ */
+function resolveAdvice(scoreInfo, gate, dualScore, positionRec) {
   if (gate && !gate.actionable) return nonActionableAdviceWeb();
+  if (dualScore?.conflict && gate?.actionable !== false) {
+    return {
+      label: '双分冲突·弃权',
+      headline: '双体系不一致，操作弃权',
+      action: '维持基础定投，按日历执行；待双分同向或校准明确后再加减仓',
+      color: '#94a3b8',
+      bg: '#33415544',
+      emoji: '⚖️',
+      source: 'dual_conflict',
+    };
+  }
+  if (positionRec && positionRec.action) {
+    const tilt = positionRec.tilt;
+    const color = tilt === 'reduce' ? '#f97316' : tilt === 'add' ? '#22c55e' : '#f59e0b';
+    return {
+      label: positionRec.label || '仓位建议',
+      headline: positionRec.headline || `建议仓位 ${positionRec.targetPct}%`,
+      action: positionRec.action,
+      color,
+      bg: color + '18',
+      emoji: positionRec.emoji || '📦',
+      source: 'position',
+    };
+  }
   if (!scoreInfo) return null;
-  return plainAdvice(scoreInfo.score, scoreInfo.direction);
+  const a = plainAdvice(scoreInfo.score, scoreInfo.direction);
+  return { ...a, source: 'score' };
 }
 
 /** 门禁顶栏 HTML */
@@ -630,6 +791,8 @@ function stripDashboardDuplicates(md) {
   md = stripSection('当前仓位推荐');
   md = stripSection('📊 历史预测对错');
   md = stripSection('历史预测对错');
+  md = stripSection('🛡️ 可信度一览');
+  md = stripSection('可信度一览');
   return md;
 }
 
@@ -719,25 +882,32 @@ function renderPredictionDashboard(meta) {
     ? `<div class="pred-pill conf-${qualityGate.tier === 'green' ? 'good' : qualityGate.tier === 'red' ? 'low' : 'mid'}">${qualityGate.emoji} ${qualityGate.label}</div>`
     : '';
 
+  const rel = meta.reliability;
+  const bandLine = rel?.scoreBand
+    ? `<div class="pred-score-band">区间 ${rel.scoreBand.low}–${rel.scoreBand.high}</div>`
+    : '';
+
+  // 首屏三块：可信度 · 分数/操作 · 仓位+命中；门禁/双分/情景默认折叠
   return `<section class="pred-dashboard" aria-label="预测结论">
-    ${renderQualityBanner(qualityGate)}
-    ${renderDualScoreBanner(meta.dualScore)}
+    ${renderReliabilityPanel(rel)}
     ${renderSampleWarn(calibration)}
     <div class="pred-hero ${qualityGate && !qualityGate.actionable ? 'pred-hero-blocked' : ''}" style="--pred-color:${advice.color}">
       <div class="pred-score-col">
         <div class="pred-score-num">${score}</div>
         <div class="pred-score-sub">综合分 / 100</div>
+        ${bandLine}
         <div class="pred-score-meter"><div class="pred-score-fill" style="width:${score}%;background:${advice.color}"></div></div>
         ${quantLine}
         ${calibBadge}
         ${macroLine}
       </div>
       <div class="pred-verdict-col">
-        <div class="pred-dir-tag">${advice.emoji} ${advice.label}</div>
+        <div class="pred-dir-tag">${advice.emoji} ${advice.label}${advice.source ? `<span class="pred-src">${esc(advice.source)}</span>` : ''}</div>
         ${actionBoxHtml}
         <div class="pred-pills">
           <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
           ${gatePill}
+          ${rel ? `<div class="pred-pill">可信度 ${rel.score}</div>` : ''}
           ${strategies.dca && (qualityGate?.actionable !== false) ? `<div class="pred-pill">${esc(strategies.dca)}</div>` : ''}
           ${strategies.position && (qualityGate?.actionable !== false) ? `<div class="pred-pill">${esc(strategies.position)}</div>` : ''}
         </div>
@@ -745,9 +915,11 @@ function renderPredictionDashboard(meta) {
     </div>
     ${renderPositionPanel(meta.positionRec)}
     ${renderPredictionStatsPanel(meta.predictionStats)}
-    ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">三情景概率</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
     <details class="pred-secondary">
-      <summary>历史佐证与短期提示</summary>
+      <summary>数据门禁 · 双打分 · 情景与佐证</summary>
+      ${renderQualityBanner(qualityGate)}
+      ${renderDualScoreBanner(meta.dualScore)}
+      ${scenarioHtml ? `<div class="pred-scenarios"><div class="pred-section-title">三情景概率</div><div class="sc-grid">${scenarioHtml}</div></div>` : ''}
       <div class="pred-trust"><span class="pred-trust-icon">🎯</span><div class="pred-trust-body">${trustInner}</div></div>
       ${strategies.short ? `<div class="pred-short-tip"><span>⏱️ 短期</span>${esc(strategies.short)}</div>` : ''}
     </details>
@@ -805,6 +977,8 @@ function getFileInfos(files) {
     const quantInfo = extractQuantScore(md);
     const dims = extractDimensionScores(md);
     const qualityGate = extractDataQualityGate(md);
+    const dualScore = extractDualScore(md);
+    const positionRec = extractPositionRecommend(md);
     const kind = classifyDoc(f);
     let dateLabel = f.replace(/\.md$/, '');
     if (kind === 'analysis') dateLabel = f.replace('goldrush-analysis-', '').replace('.md', '');
@@ -833,9 +1007,11 @@ function getFileInfos(files) {
       calibration: extractCalibration(md),
       confidence: extractDataConfidence(md),
       qualityGate,
+      dualScore,
+      positionRec,
       scenarios: extractScenarios(md),
       strategies: extractStrategies(md),
-      advice: resolveAdvice(scoreInfo, qualityGate),
+      advice: resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec),
     };
   });
 }
@@ -965,7 +1141,20 @@ function renderIndex(fileInfos) {
     }
   }
   const predictionStats = loadPredictionStats();
-  const homePanels = `${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
+  let latestRel = null;
+  if (latest) {
+    try {
+      const latestMd = fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8');
+      latestRel = extractReliabilityCard(latestMd, {
+        score: latest.score,
+        qualityGate: latest.qualityGate,
+        dualScore: latest.dualScore,
+        calibration: latest.calibration,
+        positionLine: latestPos ? `建议仓位 ${latestPos.targetPct}%（${latestPos.label}）` : null,
+      });
+    } catch { /* ignore */ }
+  }
+  const homePanels = `${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1065,6 +1254,15 @@ function renderIndex(fileInfos) {
     }
     .pos-headline { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-top: 4px; }
     .pos-action { font-size: 0.82rem; color: #94a3b8; margin-top: 6px; line-height: 1.45; }
+    .pos-risk-badge {
+      font-size: 0.68rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+    }
+    .pos-risk-badge.hot {
+      color: #fbbf24; border-color: #f59e0b44; background: #f59e0b14;
+    }
+    .pos-risk-line { margin-top: 10px; font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
+    .pos-risk-line.hot { color: #fcd34d; }
     .pred-stats-panel {
       margin: 0 0 20px; padding: 16px 18px; border-radius: 14px;
       background: #131c2e; border: 1px solid #2d3a4e;
@@ -1092,6 +1290,52 @@ function renderIndex(fileInfos) {
     }
     .ps-table th { color: #64748b; font-weight: 600; font-size: 0.7rem; }
     .ps-note { font-size: 0.7rem; color: #64748b; margin-top: 10px; line-height: 1.4; }
+    .ps-grid-core { grid-template-columns: repeat(3, 1fr) !important; }
+    .ps-subhead { font-size: 0.75rem; font-weight: 700; color: #94a3b8; margin: 12px 0 6px; }
+    .pred-src {
+      margin-left: 8px; font-size: 0.65rem; font-weight: 600; color: #64748b;
+      background: #1e293b; padding: 2px 6px; border-radius: 4px; vertical-align: middle;
+    }
+
+    /* 可信度一览 */
+    .rel-panel {
+      background: linear-gradient(135deg, #132033 0%, #1a2332 100%);
+      border: 1px solid #334155; border-radius: 16px;
+      padding: 18px 20px; margin: 0 0 16px;
+      border-left: 4px solid #f59e0b;
+    }
+    .rel-panel.rel-high { border-left-color: #22c55e; }
+    .rel-panel.rel-low { border-left-color: #f97316; }
+    .rel-panel.rel-blocked { border-left-color: #ef4444; }
+    .rel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .rel-title { font-size: 1rem; font-weight: 800; color: #f1f5f9; }
+    .rel-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .rel-approx {
+      font-size: 0.65rem; font-weight: 600; color: #fbbf24;
+      background: #f59e0b22; border: 1px solid #f59e0b44; padding: 1px 6px; border-radius: 6px;
+    }
+    .rel-score-block { text-align: right; }
+    .rel-score { font-size: 1.5rem; font-weight: 800; color: #fbbf24; line-height: 1.1; }
+    .rel-score-unit { font-size: 0.85rem; color: #94a3b8; font-weight: 600; }
+    .rel-label { font-size: 0.75rem; color: #cbd5e1; margin-top: 2px; }
+    .rel-band {
+      margin-top: 12px; padding: 8px 12px; border-radius: 10px;
+      background: #0f172a; border: 1px solid #1e293b;
+      font-size: 0.88rem; color: #e2e8f0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .rel-band-label { color: #64748b; font-size: 0.75rem; }
+    .rel-band-center { color: #94a3b8; font-size: 0.78rem; margin-left: auto; }
+    .rel-tldr { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .rel-tldr-line {
+      display: flex; gap: 10px; align-items: flex-start;
+      font-size: 0.86rem; color: #cbd5e1; line-height: 1.45;
+    }
+    .rel-n {
+      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+      background: #1e3a5f; color: #93c5fd; font-size: 0.7rem; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pred-score-band { font-size: 0.72rem; color: #94a3b8; margin: 2px 0 6px; }
 
     /* 报告卡片列表 */
     .card-grid { display: flex; flex-direction: column; gap: 10px; }
@@ -1385,17 +1629,14 @@ function renderArticle(mdFilename, rawMarkdown) {
   const quantInfo = extractQuantScore(rawMarkdown);
   const positionRec = extractPositionRecommend(rawMarkdown);
   const predictionStats = loadPredictionStats();
-  let advice = resolveAdvice(scoreInfo, qualityGate);
-  if (advice && dualScore?.conflict && qualityGate?.actionable !== false) {
-    advice = {
-      label: '双分冲突·弃权',
-      headline: '双体系不一致，操作弃权',
-      action: '维持基础定投，按日历执行；待双分同向或校准明确后再加减仓',
-      color: '#94a3b8',
-      bg: '#33415544',
-      emoji: '⚖️',
-    };
-  }
+  const reliability = extractReliabilityCard(rawMarkdown, {
+    score: scoreInfo?.score,
+    qualityGate,
+    dualScore,
+    calibration,
+    positionLine: positionRec ? `建议仓位 ${positionRec.targetPct}%（${positionRec.label}）` : null,
+  });
+  const advice = resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec);
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({
@@ -1407,7 +1648,7 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
     scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate, dualScore,
-    positionRec, predictionStats,
+    positionRec, predictionStats, reliability,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;
@@ -1758,6 +1999,15 @@ function renderArticle(mdFilename, rawMarkdown) {
     }
     .pos-headline { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-top: 4px; }
     .pos-action { font-size: 0.82rem; color: #94a3b8; margin-top: 6px; line-height: 1.45; }
+    .pos-risk-badge {
+      font-size: 0.68rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+    }
+    .pos-risk-badge.hot {
+      color: #fbbf24; border-color: #f59e0b44; background: #f59e0b14;
+    }
+    .pos-risk-line { margin-top: 10px; font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
+    .pos-risk-line.hot { color: #fcd34d; }
 
     /* 历史预测对错面板 */
     .pred-stats-panel {
@@ -1787,6 +2037,51 @@ function renderArticle(mdFilename, rawMarkdown) {
     }
     .ps-table th { color: #64748b; font-weight: 600; font-size: 0.7rem; }
     .ps-note { font-size: 0.7rem; color: #64748b; margin-top: 10px; line-height: 1.4; }
+    .ps-grid-core { grid-template-columns: repeat(3, 1fr) !important; }
+    .ps-subhead { font-size: 0.75rem; font-weight: 700; color: #94a3b8; margin: 12px 0 6px; }
+    .pred-src {
+      margin-left: 8px; font-size: 0.65rem; font-weight: 600; color: #64748b;
+      background: #1e293b; padding: 2px 6px; border-radius: 4px; vertical-align: middle;
+    }
+
+    .rel-panel {
+      background: linear-gradient(135deg, #132033 0%, #1a2332 100%);
+      border: 1px solid #334155; border-radius: 16px;
+      padding: 18px 20px; margin: 0 0 16px;
+      border-left: 4px solid #f59e0b;
+    }
+    .rel-panel.rel-high { border-left-color: #22c55e; }
+    .rel-panel.rel-low { border-left-color: #f97316; }
+    .rel-panel.rel-blocked { border-left-color: #ef4444; }
+    .rel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .rel-title { font-size: 1rem; font-weight: 800; color: #f1f5f9; }
+    .rel-sub { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    .rel-approx {
+      font-size: 0.65rem; font-weight: 600; color: #fbbf24;
+      background: #f59e0b22; border: 1px solid #f59e0b44; padding: 1px 6px; border-radius: 6px;
+    }
+    .rel-score-block { text-align: right; }
+    .rel-score { font-size: 1.5rem; font-weight: 800; color: #fbbf24; line-height: 1.1; }
+    .rel-score-unit { font-size: 0.85rem; color: #94a3b8; font-weight: 600; }
+    .rel-label { font-size: 0.75rem; color: #cbd5e1; margin-top: 2px; }
+    .rel-band {
+      margin-top: 12px; padding: 8px 12px; border-radius: 10px;
+      background: #0f172a; border: 1px solid #1e293b;
+      font-size: 0.88rem; color: #e2e8f0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .rel-band-label { color: #64748b; font-size: 0.75rem; }
+    .rel-band-center { color: #94a3b8; font-size: 0.78rem; margin-left: auto; }
+    .rel-tldr { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .rel-tldr-line {
+      display: flex; gap: 10px; align-items: flex-start;
+      font-size: 0.86rem; color: #cbd5e1; line-height: 1.45;
+    }
+    .rel-n {
+      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+      background: #1e3a5f; color: #93c5fd; font-size: 0.7rem; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pred-score-band { font-size: 0.72rem; color: #94a3b8; margin: 2px 0 6px; }
 
     /* 预测仪表盘 */
     .pred-dashboard { margin-bottom: 32px; }

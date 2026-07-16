@@ -29,6 +29,12 @@ export {
   recommendPosition,
   formatPositionConsole,
   formatPositionMarkdown,
+  computePriceRiskMetrics,
+  volToScalar,
+  drawdownToScalar,
+  smoothTargetPct,
+  extractPreviousTargetPct,
+  POSITION_MAX_DAILY_DELTA,
 } from './position-recommend.js';
 export {
   buildPredictionTrackStats,
@@ -36,3 +42,18 @@ export {
   formatPredictionTrackConsole,
   formatPredictionTrackMarkdown,
 } from './prediction-track.js';
+export {
+  buildReliabilityCard,
+  formatReliabilityConsole,
+  formatReliabilityMarkdown,
+} from './reliability-card.js';
+export {
+  archiveSearchRaw,
+  toArchiveEntries,
+} from './search-raw-archive.js';
+export {
+  scoreToAdvice,
+  checkConsistency,
+  consistencyEmoji,
+  resolveOperationalAdvice,
+} from './plain-advice.js';

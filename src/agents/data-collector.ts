@@ -15,6 +15,7 @@ import type { MarketData, SearchResult } from '../types/market.js';
 import { parseMarketData, isMissingPrice, isValidMarketNumber } from '../schemas/market.js';
 import { fetchLiveAnchors, type LiveAnchorPrice } from '../data/live-anchors.js';
 import type { SourcedPrice } from '../types/market.js';
+import { archiveSearchRaw, toArchiveEntries } from '../utils/search-raw-archive.js';
 
 const PRICE_COLLECT_PROMPT = `你是黄金市场数据采集专家。你的任务是从搜索结果中提取结构化的金价数据。
 
@@ -133,6 +134,18 @@ export class DataCollectorAgent extends BaseAgent {
     try {
       console.log('  🔎 Step 1b: 搜索 + LLM 补全（上海/ETF/叙事）...');
       const searchResults = await this.searchRouter.searchBatch(searches, { numResults: 3 });
+      // 原文存档：审计 LLM 提取是否偏离搜索片段（30 天滚动）
+      try {
+        const entries = toArchiveEntries(
+          searches.map((s) => ({
+            query: s.query,
+            dataType: s.dataType,
+            results: searchResults.get(s.query) ?? [],
+          })),
+        );
+        const arch = archiveSearchRaw(entries, { date: todayDate() });
+        if (arch) console.log(`  📁 搜索原文已存档: ${arch}`);
+      } catch { /* 存档失败不影响主流程 */ }
       const totalResults = Array.from(searchResults.values()).reduce((n, arr) => n + arr.length, 0);
       if (totalResults > 0) {
         const llmData = await this.extractMarketDataFromSearch(searchResults);

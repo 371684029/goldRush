@@ -18,7 +18,7 @@ import type { LongTermOutlook } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
 import type { ScoreBreakdown } from './score-breakdown.js';
 import type { DataQualityGate } from './data-quality-gate.js';
-import { formatDataQualityGateMarkdown, nonActionableAdvice } from './data-quality-gate.js';
+import { formatDataQualityGateMarkdown } from './data-quality-gate.js';
 import type { DualScoreVerdict } from './dual-score.js';
 import { formatDualScoreMarkdown } from './dual-score.js';
 import { formatQuantScoreMarkdown } from '../indicators/quant-score.js';
@@ -26,6 +26,10 @@ import type { PositionRecommendation } from './position-recommend.js';
 import { formatPositionMarkdown } from './position-recommend.js';
 import type { PredictionTrackStats } from './prediction-track.js';
 import { formatPredictionTrackMarkdown } from './prediction-track.js';
+import type { ReliabilityCard } from './reliability-card.js';
+import { formatReliabilityMarkdown } from './reliability-card.js';
+import type { ConsistencyCheck } from './plain-advice.js';
+import { consistencyEmoji, resolveOperationalAdvice } from './plain-advice.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -37,6 +41,8 @@ export interface ReportMarkdownExtras {
   dualVerdict?: DualScoreVerdict;
   positionRec?: PositionRecommendation;
   predictionTrack?: PredictionTrackStats;
+  reliabilityCard?: ReliabilityCard;
+  consistency?: ConsistencyCheck;
 }
 
 function dirText(d: string | undefined): string {
@@ -74,6 +80,12 @@ export function formatReportMarkdown(
   lines.push('');
   lines.push(`> 生成时间：${na(report.timestamp)}　|　视角：${horizonText(horizon)}　|　数据置信度：${na(report.dataQuality?.overallConfidence)}%`);
   lines.push('');
+
+  // 最前：可信度 + 三行看懂（简洁入口）
+  const rel = extras?.reliabilityCard;
+  if (rel) {
+    lines.push(formatReliabilityMarkdown(rel));
+  }
 
   const dq = extras?.dataQualityGate;
   if (dq) {
@@ -121,14 +133,41 @@ export function formatReportMarkdown(
   // 综合研判
   lines.push('## 综合研判');
   lines.push('');
-  lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
-  if (dq && !dq.actionable) {
-    const naAdvice = nonActionableAdvice();
-    lines.push(`- ⛔ **操作结论已关闭（数据门禁）**：${naAdvice.headline}`);
-    lines.push(`- 建议：${naAdvice.action}`);
-  } else if (dual?.actionOverride) {
-    lines.push(`- ⚖️ **操作弃权（双打分冲突）**：${dual.actionOverride.headline}`);
-    lines.push(`- 建议：${dual.actionOverride.action}`);
+  if (rel) {
+    lines.push(`- 综合评分：**${rel.scoreBand.low}–${rel.scoreBand.high}/100**（中心 ${rel.scoreBand.center}，${dirText(overall?.direction)}）`);
+  } else {
+    lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
+  }
+  const cons = extras?.consistency;
+  if (cons) {
+    lines.push(`- ${consistencyEmoji(cons.level)} 维度一致性：${cons.summary}`);
+  }
+  // 统一操作建议（与 CLI / Web 同一优先级）
+  const opAdvice = resolveOperationalAdvice({
+    llmScore: overall?.score,
+    direction: overall?.direction,
+    dataActionable: dq?.actionable,
+    dualActionOverride: dual?.actionOverride ?? null,
+    dualPolicy: dual?.actionPolicy ?? null,
+    position: pos
+      ? {
+          headline: pos.headline,
+          action: pos.action,
+          emoji: pos.emoji,
+          label: pos.label,
+          tilt: pos.tilt,
+          targetPct: pos.targetPct,
+        }
+      : null,
+  });
+  if (opAdvice) {
+    const srcTag =
+      opAdvice.source === 'data_gate' ? '⛔ 数据门禁'
+        : opAdvice.source === 'dual_conflict' ? '⚖️ 双分弃权'
+          : opAdvice.source === 'position' ? '📦 仓位'
+            : '💡 评分';
+    lines.push(`- **操作建议**（${srcTag}）：${opAdvice.emoji} ${opAdvice.headline}`);
+    lines.push(`- **操作**：${opAdvice.action}`);
   } else if (dq?.tier === 'yellow') {
     lines.push('- ⚠️ **降级可用**：建议结合量化分、CFTC 主力与置信度阅读操作建议');
   }

@@ -44,6 +44,9 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 7. **双打分**（`dual-score.ts`）：LLM 分与量化分**始终并排**；`|Δ|&gt;15` 或弱一致性 → **操作弃权（维持定投）**，不抬某一侧权重；`calibrate` 分轨统计谁更准；量化因子 `event_heat` 默认 0，无效因子可在 `DEFAULT_WEIGHTS` 置 0。
 8. **长期 1/3/5 年**（`long-term-outlook.ts`）：**配置向、慢变量主导**；3/5 年与当日 overall **脱钩**；反驳多年档惩罚封顶；累计区间硬顶 ±35%；`confidence=low` 不展示点位式累计%；相对上一 outlook **平滑**。完整说明：`docs/LONG-TERM-OUTLOOK.md`。命令：`outlook` / `outlook --md`（按最新 analysis 用新规则重算，不必等完整 analysis）。
 9. **仓位推荐 + 预测对错**（`position-recommend.ts` / `prediction-track.ts`）：相对「计划黄金仓」0–100%（非杠杆）；门禁红 ≤35%、双分冲突 ≤50%；每次 analysis 刷新 `docs/goldrush-stats-latest.json`（5 日方向命中、分桶、明细）。完整说明：`docs/POSITION-AND-TRACK.md`。Web：`server.cjs` 首页/文章页面板。
+10. **可信度一览**（`reliability-card.ts`）：门禁+双分+一致+校准+滚动命中 → 0–100 操作可信度 + 评分区间半宽 + 三行 TL;DR；**不是**预测准确率承诺。搜索原文存档 `docs/search-raw/`（`search-raw-archive.ts`）。说明：`docs/RELIABILITY.md`。
+11. **统一操作建议**（`resolveOperationalAdvice`）：优先级 门禁红 → 双分弃权 → 仓位推荐 → 分数人话；CLI/MD/Web 不得各写一套互相矛盾的文案。Smart 路径也须输出仓位与可信度。
+12. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**（金融工程/业界借鉴：风险约束仓位 v2、纸面 MaxDD、Regime Web、因子 IC、反模式）。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
 
 ### 出站网络现状（生产机实测，会变）
 | 源 | 状态 | 用途 |
@@ -112,6 +115,7 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 - **对错**：`buildPredictionTrackStats` → `docs/goldrush-stats-latest.json` + MD `## 📊 历史预测对错`  
 - **Web**：首页/文章页解析 MD 仓位小节 + 读取 stats JSON 展示命中率等统计  
 - **完整说明**：**`docs/POSITION-AND-TRACK.md`**  
+- **规划（仓位 v2 等）**：**`docs/ROADMAP-FINENG.md`**  
 - **测试**：`test/position-recommend.test.ts`、`test/prediction-track.test.ts`
 
 ### DB schema
