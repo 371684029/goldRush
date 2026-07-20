@@ -1204,7 +1204,7 @@ function renderIndex(fileInfos) {
       <button class="sort-btn" id="sort-score" onclick="setSort('score')">评分</button>
     </div>
     ${heroHtml}
-    ${homePanels}
+    ${homePanels ? `<div class="home-panels mac-window glass-strong">${macTitlebar('今日一览')}${homePanels}</div>` : ''}
     ${rest.length ? `<div class="section-label">历史日报</div><div class="card-grid" id="card-grid">${cardRows}</div>` : ''}
     ${digests.length ? `<div class="section-label" style="margin-top:28px">周期摘要</div><div class="card-grid" id="digest-grid">${digestRows}</div>` : ''}
     ${others.length ? `<div class="section-label" style="margin-top:28px">其它文档</div><div class="card-grid">${otherRows}</div>` : ''}

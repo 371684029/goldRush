@@ -66,6 +66,15 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button:focus-visible, .sort-btn:focus-visible, .collapse-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* —— 磨砂玻璃材料 —— */
 .glass {
@@ -472,9 +481,10 @@ header.home-hero .subtitle {
 .hero-card.dir-bullish::before { background: var(--green); }
 .hero-card.dir-bearish::before { background: var(--red); }
 .hero-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-4px) scale(1.005);
   box-shadow: var(--shadow-lift);
   text-decoration: none;
+  border-color: rgba(0, 122, 255, 0.22);
 }
 .hero-badge {
   position: absolute; top: 12px; right: 16px;
@@ -551,10 +561,24 @@ header.home-hero .subtitle {
 .report-card.kind-other { border-left-color: var(--text-3); }
 .report-card:hover {
   background: var(--glass-strong);
-  transform: translateY(-2px);
+  transform: translateY(-2px) scale(1.004);
   box-shadow: var(--shadow-lift);
   text-decoration: none;
+  border-color: rgba(0, 122, 255, 0.18);
 }
+.home-panels {
+  margin: 0 0 18px;
+  padding-bottom: 8px;
+}
+.home-panels .pos-panel,
+.home-panels .pred-stats-panel,
+.home-panels .rel-panel {
+  margin-left: 14px;
+  margin-right: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.home-panels .rel-panel { margin-top: 2px; }
+.home-panels .pred-stats-panel { margin-bottom: 14px; }
 .report-card.hidden { display: none; }
 .rc-score { flex-shrink: 0; }
 .rc-body { flex: 1; min-width: 0; }
