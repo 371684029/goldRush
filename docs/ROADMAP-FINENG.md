@@ -260,3 +260,4 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 | 2026-07-24 | 较昨日 Δ + 驱动归因（analysis/MD/Web）；`calibrate --ic` / `--walk-forward`；Regime 同阶段校准 MD 行 |
 | 2026-07-24 | 包：周末 `reflect` 错因反思 + 注入 analysis 上下文；列表对错/双打分 |
 | 2026-07-24 | 用户价值：事件→黄金传导卡 + 今日必看清单（`docs/USER-VALUE.md`） |
+| 2026-07-24 | **暂定**：传导不加量化因子 / `event_heat` 保持 0（防噪音） |

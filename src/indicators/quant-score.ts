@@ -57,7 +57,7 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   tips:      0.10,
   volatility:0.05,
   regime:    0.05,
-  event_heat:0.00,
+  event_heat:0.00, // 默认关闭；事件传导卡不进此权重（docs/USER-VALUE.md §3.1）
 };
 
 function clamp(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, v)); }

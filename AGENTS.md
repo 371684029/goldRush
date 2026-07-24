@@ -48,7 +48,7 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 11. **统一操作建议**（`resolveOperationalAdvice`）：优先级 门禁红 → 双分分歧（有仓位则仍给具体%） → 仓位推荐 → 分数人话；CLI/MD/Web 不得各写一套互相矛盾的文案。Smart 路径也须输出仓位与可信度。
 12. **较昨日 Δ + 研究卫生**（`day-delta.ts` / `factor-ic.ts` / `walk-forward.ts`）：日报强调相对昨日差分与驱动归因；持平可跳过细读；`calibrate --ic` / `--walk-forward`。说明：`docs/DAILY-DELTA.md`。
 13. **周末错因反思**（`weekly-reflect.ts` / `reflect`）：周日归纳打脸原因→`docs/goldrush-reflect-latest.md`；下次 analysis 注入阅读要点。说明：`docs/WEEKLY-REFLECT.md`。
-14. **事件传导 + 今日必看**（`event-transmission.ts` / `reading-checklist.ts`）：热点只保留利率/美元/避险通道；无传导则「可忽略」。用户价值说明：`docs/USER-VALUE.md`。
+14. **事件传导 + 今日必看**（`event-transmission.ts` / `reading-checklist.ts`）：热点只保留利率/美元/避险通道；无传导则「可忽略」。**暂定不加量化权重**（与 `event_heat=0` 一致，仅 Explain）。说明：`docs/USER-VALUE.md` §3.1。
 15. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**（金融工程/业界借鉴：风险约束仓位 v2、纸面 MaxDD、Regime Web、因子 IC、反模式）。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
 
 ### 出站网络现状（生产机实测，会变）

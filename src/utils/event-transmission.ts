@@ -1,5 +1,9 @@
 // 事件 → 黄金传导 — 只展示利率/美元/避险通道；无传导则明确「可忽略热点」
 // Explain 层：不改仓位算法，只压缩噪声
+//
+// 暂定（2026-07-24）：不进入 quant-score / event_heat 权重。
+// 理由：热点对金方向不稳、易与美元/利率对冲、文本难复现 → 加分易成噪音。
+// 详见 docs/USER-VALUE.md §3.1
 
 import type { MarketData } from '../types/market.js';
 import type { SentimentAnalysis, TailRisk } from '../types/analysis.js';
