@@ -6,6 +6,10 @@
 //   - 相对昨日目标仓日平滑（别一天跳 30%）
 
 import type { Direction } from '../types/analysis.js';
+import {
+  buildDualConflictOverride,
+  dualDirectionFromScore,
+} from './dual-score.js';
 
 export type PositionLabel = '极轻' | '偏轻' | '标配' | '偏积极' | '积极';
 
@@ -224,7 +228,7 @@ export function recommendPosition(input: PositionRecommendInput): PositionRecomm
   // 3) 双打分冲突弃权：压到标配以下
   if (input.dualPolicy === 'hold_on_conflict') {
     target = Math.min(target, 50);
-    constraints.push('双分冲突：操作弃权，仓位不超过标配 50%');
+    constraints.push('双分分歧：仓位上限 50%，定投层为主');
   }
 
   // 4) 弱一致
@@ -324,8 +328,24 @@ export function recommendPosition(input: PositionRecommendInput): PositionRecomm
     headline = '数据不可靠，建议维持轻仓纪律仓';
     action = `建议相对计划仓约 ${target}%（定投层 ${coreShare}% / 波段层 ${satelliteShare}%）；暂停加仓，修好数据再评估`;
   } else if (input.dualPolicy === 'hold_on_conflict') {
-    headline = '双体系不一致，维持纪律仓、不追方向';
-    action = `建议相对计划仓约 ${target}%；以定投层为主（${coreShare}%），波段仓轻仓或空仓`;
+    // 与 evaluateDualScore / buildDualConflictOverride 共用同一套标题
+    const q = input.quantScore;
+    if (q != null && Number.isFinite(q)) {
+      const llmDirection = dualDirectionFromScore(input.llmScore);
+      const quantDirection = dualDirectionFromScore(q);
+      const ov = buildDualConflictOverride({
+        llmScore: input.llmScore,
+        quantScore: Math.round(q),
+        llmDirection,
+        quantDirection,
+        delta: Math.round(input.llmScore - q),
+        sameDirection: llmDirection === quantDirection,
+      });
+      headline = ov.headline;
+    } else {
+      headline = '双分分歧，维持纪律仓、不追单边';
+    }
+    action = `建议相对计划仓约 ${target}%（${label}）；定投层为主（${coreShare}%），波段仓轻仓或空仓`;
   } else if (badges.includes('高波动') || badges.includes('近窗回撤')) {
     headline = '风险偏高，仓位已自动收一收';
     action = `建议相对计划仓约 ${target}%（${label}）；定投层为主（${coreShare}%），少做波段加仓`;

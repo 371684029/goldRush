@@ -23,6 +23,8 @@ export {
   evaluateDualScore,
   formatDualScoreConsole,
   formatDualScoreMarkdown,
+  buildDualConflictOverride,
+  alignDualOverrideWithPosition,
   DUAL_CONFLICT_THRESHOLD,
 } from './dual-score.js';
 export {

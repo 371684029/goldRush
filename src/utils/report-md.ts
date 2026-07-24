@@ -163,7 +163,7 @@ export function formatReportMarkdown(
   if (opAdvice) {
     const srcTag =
       opAdvice.source === 'data_gate' ? '⛔ 数据门禁'
-        : opAdvice.source === 'dual_conflict' ? '⚖️ 双分弃权'
+        : opAdvice.source === 'dual_conflict' ? '⚖️ 双分分歧'
           : opAdvice.source === 'position' ? '📦 仓位'
             : '💡 评分';
     lines.push(`- **操作建议**（${srcTag}）：${opAdvice.emoji} ${opAdvice.headline}`);

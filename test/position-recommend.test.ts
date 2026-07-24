@@ -8,6 +8,7 @@ import {
   computePriceRiskMetrics,
   POSITION_MAX_DAILY_DELTA,
 } from '../src/utils/position-recommend';
+import { buildDualConflictOverride } from '../src/utils/dual-score';
 
 describe('recommendPosition', () => {
   it('中性分落在标配附近', () => {
@@ -25,15 +26,26 @@ describe('recommendPosition', () => {
     expect(p.constraints.some(c => c.includes('门禁'))).toBe(true);
   });
 
-  it('双分冲突不超过 50%', () => {
+  it('双分冲突不超过 50%，headline 与 buildDualConflictOverride 一致', () => {
     const p = recommendPosition({
-      llmScore: 75,
-      quantScore: 40,
+      llmScore: 28,
+      quantScore: 45,
       dualPolicy: 'hold_on_conflict',
       dataActionable: true,
     });
     expect(p.targetPct).toBeLessThanOrEqual(50);
-    expect(p.constraints.some(c => c.includes('冲突'))).toBe(true);
+    expect(p.constraints.some(c => c.includes('双分') || c.includes('上限'))).toBe(true);
+    expect(p.headline).toBe(
+      buildDualConflictOverride({
+        llmScore: 28,
+        quantScore: 45,
+        llmDirection: 'bearish',
+        quantDirection: 'neutral',
+        delta: -17,
+        sameDirection: false,
+      }).headline,
+    );
+    expect(p.action).toMatch(/\d+%/);
   });
 
   it('高分可偏积极（无额外风险时）', () => {

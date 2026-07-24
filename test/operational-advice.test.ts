@@ -21,22 +21,40 @@ describe('resolveOperationalAdvice', () => {
     expect(a?.label).toContain('不可用');
   });
 
-  it('双分冲突优先于仓位与分数', () => {
+  it('双分分歧时优先给出具体仓位结论（不再空喊双体系不一致）', () => {
+    const a = resolveOperationalAdvice({
+      llmScore: 28,
+      dataActionable: true,
+      dualPolicy: 'hold_on_conflict',
+      dualActionOverride: {
+        headline: 'LLM 偏空28 / 量化 中性45：阶段判断不完全一致',
+        action: '建议相对计划仓约 26%（极轻）；定投层为主（85%），波段仓轻仓或空仓',
+      },
+      position: {
+        headline: 'LLM 偏空28 / 量化 中性45：阶段判断不完全一致',
+        action: '建议相对计划仓约 26%（极轻）；定投层为主（85%），波段仓轻仓或空仓',
+        emoji: '🔴',
+        label: '极轻',
+        tilt: 'reduce',
+        targetPct: 26,
+      },
+    });
+    expect(a?.source).toBe('dual_conflict');
+    expect(a?.action).toContain('26%');
+    expect(a?.headline).toBe('LLM 偏空28 / 量化 中性45：阶段判断不完全一致');
+    expect(a?.headline).not.toMatch(/双体系不一致/);
+    expect(a?.label).toContain('极轻');
+  });
+
+  it('双分分歧且无仓位时回落 override', () => {
     const a = resolveOperationalAdvice({
       llmScore: 70,
       dataActionable: true,
       dualPolicy: 'hold_on_conflict',
-      dualActionOverride: { headline: '双体系不一致', action: '维持定投' },
-      position: {
-        headline: '偏积极',
-        action: '可加',
-        emoji: '🟢',
-        label: '偏积极',
-        tilt: 'add',
-        targetPct: 70,
-      },
+      dualActionOverride: { headline: '方向对立：LLM 偏多 vs 量化 偏空', action: '维持定投' },
     });
     expect(a?.source).toBe('dual_conflict');
+    expect(a?.headline).toMatch(/对立|LLM/);
     expect(a?.action).toContain('定投');
   });
 
