@@ -145,7 +145,7 @@ button:focus-visible, .sort-btn:focus-visible, .collapse-btn:focus-visible {
     background 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
-.pos-panel, .pred-stats-panel, .rel-panel, .dd-panel {
+.pos-panel, .pred-stats-panel, .rel-panel, .dd-panel, .read-panel, .tr-panel {
   margin: 0 0 14px;
   padding: 18px 20px;
   border-radius: var(--radius-md);
@@ -159,6 +159,24 @@ button:focus-visible, .sort-btn:focus-visible, .collapse-btn:focus-visible {
 .rel-panel.rel-high { border-left-color: var(--green); }
 .rel-panel.rel-low { border-left-color: var(--yellow); }
 .rel-panel.rel-blocked { border-left-color: var(--red); }
+
+.read-panel { border-left: 3px solid var(--accent); }
+.read-title { font-weight: 600; font-size: 0.95rem; color: var(--text); }
+.read-sub { font-size: 0.75rem; color: var(--text-3); margin: 4px 0 10px; }
+.rc-check-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: flex-start; }
+.rc-check-n {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700; background: var(--accent-soft); color: var(--accent);
+}
+.rc-check-t { font-size: 0.78rem; font-weight: 600; color: var(--text); }
+.rc-check-v { font-size: 0.74rem; color: var(--text-2); line-height: 1.4; margin-top: 2px; }
+
+.tr-panel { border-left: 3px solid #af52de; }
+.tr-panel.tr-skip { opacity: 0.92; border-left-color: var(--text-3); }
+.tr-title { font-weight: 600; font-size: 0.95rem; color: var(--text); }
+.tr-headline { font-size: 0.88rem; font-weight: 600; margin: 6px 0; line-height: 1.4; color: var(--text); }
+.tr-hint { font-size: 0.75rem; color: var(--text-3); }
 
 .dd-panel { border-left: 3px solid var(--text-3); }
 .dd-panel.dd-skip { border-left-color: var(--text-3); opacity: 0.95; }
@@ -604,13 +622,17 @@ header.home-hero .subtitle {
 .home-panels .pos-panel,
 .home-panels .pred-stats-panel,
 .home-panels .rel-panel,
-.home-panels .dd-panel {
+.home-panels .dd-panel,
+.home-panels .read-panel,
+.home-panels .tr-panel {
   margin-left: 14px;
   margin-right: 14px;
   background: rgba(255, 255, 255, 0.55);
 }
 .home-panels .dd-panel,
-.home-panels .rel-panel { margin-top: 2px; }
+.home-panels .rel-panel,
+.home-panels .read-panel,
+.home-panels .tr-panel { margin-top: 2px; }
 .home-panels .pred-stats-panel { margin-bottom: 14px; }
 .report-card.hidden { display: none; }
 .rc-score { flex-shrink: 0; }

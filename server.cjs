@@ -329,6 +329,56 @@ function renderDayDeltaPanel(dd) {
   </div>`;
 }
 
+/** 从 MD「今日必看」提取 */
+function extractReadingChecklist(md) {
+  const sec = md.match(/##\s*[📖\s]*今日必看([\s\S]*?)(?=\n##\s|$)/);
+  if (!sec) return null;
+  const body = sec[1];
+  const headlineM = body.match(/>\s*\*{0,2}(.+?)\*{0,2}\s*$/m);
+  const items = [];
+  for (const m of body.matchAll(/^\d+\.\s*\*\*(.+?)\*\*(?:`可跳过`)?[：:]\s*(.+)$/gm)) {
+    items.push({ title: m[1].trim(), value: m[2].replace(/\*\*/g, '').trim() });
+  }
+  if (!items.length) return null;
+  return {
+    headline: headlineM ? headlineM[1].replace(/\*\*/g, '').trim() : '今日必看',
+    items,
+  };
+}
+
+/** 从 MD「事件→黄金传导」提取 */
+function extractTransmission(md) {
+  const sec = md.match(/##\s*[🛰️\s]*事件→黄金传导([\s\S]*?)(?=\n##\s|$)/);
+  if (!sec) return null;
+  const body = sec[1];
+  const headlineM = body.match(/>\s*\*{0,2}(.+?)\*{0,2}\s*$/m);
+  const headline = headlineM ? headlineM[1].replace(/\*\*/g, '').trim() : '';
+  const actionable = !/可忽略|传导不清/.test(headline);
+  return { headline: headline || '事件→黄金传导', actionable };
+}
+
+function renderReadingChecklistPanel(cl) {
+  if (!cl || !cl.items?.length) return '';
+  const rows = cl.items.slice(0, 5).map((it, i) =>
+    `<div class="rc-check-row"><span class="rc-check-n">${i + 1}</span><div><div class="rc-check-t">${esc(it.title)}</div><div class="rc-check-v">${esc(it.value)}</div></div></div>`
+  ).join('');
+  return `<div class="read-panel" role="region" aria-label="今日必看">
+    <div class="read-title">📖 今日必看</div>
+    <div class="read-sub">${esc(cl.headline)}</div>
+    ${rows}
+  </div>`;
+}
+
+function renderTransmissionPanel(tr) {
+  if (!tr) return '';
+  const skip = tr.actionable ? '' : ' tr-skip';
+  return `<div class="tr-panel${skip}" role="region" aria-label="事件到黄金传导">
+    <div class="tr-title">🛰️ 事件→黄金传导</div>
+    <div class="tr-headline">${esc(tr.headline)}</div>
+    <div class="tr-hint">${tr.actionable ? '对照利率/美元/避险，勿单看战争标题' : '无有效传导：热点可跳过'}</div>
+  </div>`;
+}
+
 /** 读取 docs/goldrush-stats-latest.json */
 function loadPredictionStats() {
   try {
@@ -934,6 +984,10 @@ function stripDashboardDuplicates(md) {
   md = stripSection('可信度一览');
   md = stripSection('📅 较昨日一览');
   md = stripSection('较昨日一览');
+  md = stripSection('📖 今日必看');
+  md = stripSection('今日必看');
+  md = stripSection('🛰️ 事件→黄金传导');
+  md = stripSection('事件→黄金传导');
   return md;
 }
 
@@ -1028,9 +1082,11 @@ function renderPredictionDashboard(meta) {
     ? `<div class="pred-score-band">区间 ${rel.scoreBand.low}–${rel.scoreBand.high}</div>`
     : '';
 
-  // 首屏：较昨日差分 · 可信度 · 分数/操作 · 仓位+命中；门禁/双分/情景默认折叠
+  // 首屏：必看 · 较昨日 · 传导 · 可信度 · 分数/操作 · 仓位+命中
   return `<section class="pred-dashboard" aria-label="预测结论">
+    ${renderReadingChecklistPanel(meta.readingChecklist)}
     ${renderDayDeltaPanel(meta.dayDelta)}
+    ${renderTransmissionPanel(meta.transmission)}
     ${renderReliabilityPanel(rel)}
     ${renderSampleWarn(calibration)}
     <div class="pred-hero ${qualityGate && !qualityGate.actionable ? 'pred-hero-blocked' : ''}" style="--pred-color:${advice.color}">
@@ -1160,6 +1216,8 @@ function getFileInfos(files) {
       strategies: extractStrategies(md),
       advice: resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec),
       dayDelta: extractDayDelta(md),
+      readingChecklist: extractReadingChecklist(md),
+      transmission: extractTransmission(md),
     };
   });
 }
@@ -1316,7 +1374,7 @@ function renderIndex(fileInfos) {
       });
     } catch { /* ignore */ }
   }
-  const homePanels = `${renderDayDeltaPanel(latest?.listDelta || latest?.dayDelta)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
+  const homePanels = `${renderReadingChecklistPanel(latest?.readingChecklist)}${renderDayDeltaPanel(latest?.listDelta || latest?.dayDelta)}${renderTransmissionPanel(latest?.transmission)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1432,6 +1490,8 @@ function renderArticle(mdFilename, rawMarkdown) {
   const positionRec = enrichPositionHeadline(extractPositionRecommend(rawMarkdown), dualScore);
   const predictionStats = loadPredictionStats();
   const dayDelta = extractDayDelta(rawMarkdown);
+  const readingChecklist = extractReadingChecklist(rawMarkdown);
+  const transmission = extractTransmission(rawMarkdown);
   const reliability = extractReliabilityCard(rawMarkdown, {
     score: scoreInfo?.score,
     qualityGate,
@@ -1451,7 +1511,7 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
     scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate, dualScore,
-    positionRec, predictionStats, reliability, dayDelta,
+    positionRec, predictionStats, reliability, dayDelta, readingChecklist, transmission,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;

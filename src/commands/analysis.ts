@@ -50,6 +50,16 @@ import {
   formatDayDeltaConsole,
   type DayDelta,
 } from '../utils/day-delta.js';
+import {
+  buildEventGoldTransmission,
+  formatTransmissionConsole,
+  type EventGoldTransmission,
+} from '../utils/event-transmission.js';
+import {
+  buildReadingChecklist,
+  formatReadingChecklistConsole,
+  type ReadingChecklist,
+} from '../utils/reading-checklist.js';
 import type { OrchestrateOptions } from '../agents/orchestrator.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
@@ -501,6 +511,36 @@ export async function analysisCommand(options: {
   });
   console.log(formatReliabilityConsole(reliabilityCard));
 
+  const tipsDelta =
+    prevPriceRow?.tipsYield != null && currPriceRow?.tipsYield != null
+      ? currPriceRow.tipsYield - prevPriceRow.tipsYield
+      : null;
+  const transmission = buildEventGoldTransmission({
+    marketData: report.marketData,
+    sentiment: report.sentiment,
+    macroRegime,
+    tailRisks: report.tailRisks ?? report.rebuttal?.tailRisks,
+    causalChains,
+    tipsDelta,
+  });
+  console.log(formatTransmissionConsole(transmission));
+
+  let reflectOneLiner: string | null = null;
+  try {
+    const prevReflect = loadPreviousReflect();
+    if (prevReflect?.headline) reflectOneLiner = prevReflect.headline;
+  } catch { /* ignore */ }
+  const readingChecklist = buildReadingChecklist({
+    reliability: reliabilityCard,
+    position: positionRec,
+    dayDelta,
+    dual: dualVerdict,
+    dataGate: dataQualityGate,
+    transmission,
+    reflectOneLiner,
+  });
+  console.log(formatReadingChecklistConsole(readingChecklist));
+
   let similarPatterns: PatternMatch[] = preSimilar;
   if (similarPatterns.length > 0) {
     console.log('  📜 历史相似日（已回填 5 日收益）:');
@@ -538,6 +578,8 @@ export async function analysisCommand(options: {
     reliabilityCard,
     consistency: dimConsistency,
     dayDelta,
+    transmission,
+    readingChecklist,
   };
 
   // 输出报告
@@ -721,6 +763,36 @@ async function runSmartAnalysis(
     dayDelta,
   });
 
+  const tipsDeltaSmart =
+    prevPriceRow?.tipsYield != null && currPriceRow?.tipsYield != null
+      ? currPriceRow.tipsYield - prevPriceRow.tipsYield
+      : null;
+  const transmission = buildEventGoldTransmission({
+    marketData: report.marketData,
+    sentiment: report.sentiment,
+    macroRegime,
+    tailRisks: report.tailRisks ?? report.rebuttal?.tailRisks,
+    causalChains: report.causalChains,
+    tipsDelta: tipsDeltaSmart,
+  });
+  console.log(formatTransmissionConsole(transmission));
+
+  let reflectOneLiner: string | null = null;
+  try {
+    const prevReflect = loadPreviousReflect();
+    if (prevReflect?.headline) reflectOneLiner = prevReflect.headline;
+  } catch { /* ignore */ }
+  const readingChecklist = buildReadingChecklist({
+    reliability: reliabilityCard,
+    position: positionRec,
+    dayDelta,
+    dual: dualVerdict,
+    dataGate: dataQualityGate,
+    transmission,
+    reflectOneLiner,
+  });
+  console.log(formatReadingChecklistConsole(readingChecklist));
+
   const reportExtras = {
     macroRegime,
     judgeVerdict,
@@ -733,6 +805,8 @@ async function runSmartAnalysis(
     reliabilityCard,
     consistency: dimConsistency,
     dayDelta,
+    transmission,
+    readingChecklist,
   };
 
   reportsRepo.insert({

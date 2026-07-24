@@ -32,6 +32,10 @@ import type { ConsistencyCheck } from './plain-advice.js';
 import { consistencyEmoji, resolveOperationalAdvice } from './plain-advice.js';
 import type { DayDelta } from './day-delta.js';
 import { formatDayDeltaMarkdown } from './day-delta.js';
+import type { EventGoldTransmission } from './event-transmission.js';
+import { formatTransmissionMarkdown } from './event-transmission.js';
+import type { ReadingChecklist } from './reading-checklist.js';
+import { formatReadingChecklistMarkdown } from './reading-checklist.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -46,6 +50,8 @@ export interface ReportMarkdownExtras {
   reliabilityCard?: ReliabilityCard;
   consistency?: ConsistencyCheck;
   dayDelta?: DayDelta;
+  transmission?: EventGoldTransmission;
+  readingChecklist?: ReadingChecklist;
 }
 
 function dirText(d: string | undefined): string {
@@ -84,7 +90,12 @@ export function formatReportMarkdown(
   lines.push(`> 生成时间：${na(report.timestamp)}　|　视角：${horizonText(horizon)}　|　数据置信度：${na(report.dataQuality?.overallConfidence)}%`);
   lines.push('');
 
-  // 最前：可信度 + 三行看懂（简洁入口）
+  // 最前：必看清单 → 可信度 → 较昨日 → …
+  const checklist = extras?.readingChecklist;
+  if (checklist) {
+    lines.push(formatReadingChecklistMarkdown(checklist));
+  }
+
   const rel = extras?.reliabilityCard;
   if (rel) {
     lines.push(formatReliabilityMarkdown(rel));
@@ -93,6 +104,11 @@ export function formatReportMarkdown(
   const dayDelta = extras?.dayDelta;
   if (dayDelta) {
     lines.push(formatDayDeltaMarkdown(dayDelta));
+  }
+
+  const transmission = extras?.transmission;
+  if (transmission) {
+    lines.push(formatTransmissionMarkdown(transmission));
   }
 
   const dq = extras?.dataQualityGate;

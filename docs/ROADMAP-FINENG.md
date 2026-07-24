@@ -259,3 +259,4 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 | 2026-07-16 | 包 A 落地：风险约束仓位 v2（波动/回撤/日平滑 + Web 角标） |
 | 2026-07-24 | 较昨日 Δ + 驱动归因（analysis/MD/Web）；`calibrate --ic` / `--walk-forward`；Regime 同阶段校准 MD 行 |
 | 2026-07-24 | 包：周末 `reflect` 错因反思 + 注入 analysis 上下文；列表对错/双打分 |
+| 2026-07-24 | 用户价值：事件→黄金传导卡 + 今日必看清单（`docs/USER-VALUE.md`） |
