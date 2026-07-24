@@ -39,7 +39,8 @@ LLM 分：四维 Agent → 反驳 → 历史校准偏移 → overall.score
 **冲突日怎么写给人看（重要）：**
 
 - ❌ 不要天天重复「双体系不一致，操作弃权」盖掉一切  
-- ✅ 写清：`LLM 偏空28 / 量化 中性45（Δ-17）：取均值偏克制` + **具体仓位%**  
+- ✅ 写清：`LLM 偏空28 / 量化 中性45：阶段判断不完全一致` + **具体仓位%**  
+- ✅ **单一文案源**：`buildDualConflictOverride` 出标题；仓位算完后 `alignDualOverrideWithPosition` 把双打分节 / 策略风险提示 / 操作建议对齐为同一 headline + 仓位 action  
 - ✅ 统一出口 `resolveOperationalAdvice`：有仓位推荐时，冲突日仍以仓位结论为主文案  
 
 **明确不做的事：**

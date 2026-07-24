@@ -28,10 +28,10 @@ describe('resolveOperationalAdvice', () => {
       dualPolicy: 'hold_on_conflict',
       dualActionOverride: {
         headline: 'LLM 偏空28 / 量化 中性45：阶段判断不完全一致',
-        action: '维持定投',
+        action: '建议相对计划仓约 26%（极轻）；定投层为主（85%），波段仓轻仓或空仓',
       },
       position: {
-        headline: 'LLM 偏空28 / 量化 中性45（Δ-17）：取均值偏克制',
+        headline: 'LLM 偏空28 / 量化 中性45：阶段判断不完全一致',
         action: '建议相对计划仓约 26%（极轻）；定投层为主（85%），波段仓轻仓或空仓',
         emoji: '🔴',
         label: '极轻',
@@ -41,7 +41,7 @@ describe('resolveOperationalAdvice', () => {
     });
     expect(a?.source).toBe('dual_conflict');
     expect(a?.action).toContain('26%');
-    expect(a?.headline).toMatch(/LLM|量化|26|偏克制/);
+    expect(a?.headline).toBe('LLM 偏空28 / 量化 中性45：阶段判断不完全一致');
     expect(a?.headline).not.toMatch(/双体系不一致/);
     expect(a?.label).toContain('极轻');
   });

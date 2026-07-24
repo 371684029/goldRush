@@ -89,6 +89,26 @@ export function buildDualConflictOverride(input: {
 }
 
 /**
+ * 仓位算完后：把双分 actionOverride 与仓位结论对齐（同一 headline + 具体仓位% action）
+ * 避免「综合研判 / 双打分 / 策略风险提示」各写一套。
+ */
+export function alignDualOverrideWithPosition(
+  dual: DualScoreVerdict,
+  position: { headline: string; action: string } | null | undefined,
+): void {
+  if (!dual.actionOverride) return;
+  if (dual.actionPolicy !== 'hold_on_conflict') return;
+  // 数据门禁覆盖不与仓位混写
+  if (dual.actionOverride.headline.includes('数据质量不足')) return;
+  if (!position?.action) return;
+
+  dual.actionOverride = {
+    headline: position.headline || dual.actionOverride.headline,
+    action: position.action,
+  };
+}
+
+/**
  * 评估双打分关系与操作策略。
  * @param consistencyWeak 四维度一致性弱（≤2/4）— 单独不足以标成「双体系不一致」
  * @param dataActionable 数据门禁是否允许操作（红档 false）

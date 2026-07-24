@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   evaluateDualScore,
   buildDualConflictOverride,
+  alignDualOverrideWithPosition,
   DUAL_CONFLICT_THRESHOLD,
   predictDirectionFromScore,
 } from '../src/utils/dual-score';
@@ -83,6 +84,30 @@ describe('buildDualConflictOverride', () => {
       sameDirection: false,
     });
     expect(o.headline).toMatch(/不完全一致|偏空|中性/);
+  });
+});
+
+describe('alignDualOverrideWithPosition', () => {
+  it('把 actionOverride 与仓位结论对齐为同一套文案', () => {
+    const dual = evaluateDualScore(28, 45);
+    expect(dual.actionOverride).not.toBeNull();
+    const before = dual.actionOverride!.headline;
+    alignDualOverrideWithPosition(dual, {
+      headline: before,
+      action: '建议相对计划仓约 26%（极轻）；定投层为主（85%），波段仓轻仓或空仓',
+    });
+    expect(dual.actionOverride?.headline).toBe(before);
+    expect(dual.actionOverride?.action).toContain('26%');
+  });
+
+  it('数据门禁覆盖不与仓位混写', () => {
+    const dual = evaluateDualScore(70, 65, { dataActionable: false });
+    const original = dual.actionOverride!.action;
+    alignDualOverrideWithPosition(dual, {
+      headline: '仓位标题',
+      action: '建议相对计划仓约 30%',
+    });
+    expect(dual.actionOverride?.action).toBe(original);
   });
 });
 

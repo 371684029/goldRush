@@ -6,6 +6,10 @@
 //   - 相对昨日目标仓日平滑（别一天跳 30%）
 
 import type { Direction } from '../types/analysis.js';
+import {
+  buildDualConflictOverride,
+  dualDirectionFromScore,
+} from './dual-score.js';
 
 export type PositionLabel = '极轻' | '偏轻' | '标配' | '偏积极' | '积极';
 
@@ -324,18 +328,20 @@ export function recommendPosition(input: PositionRecommendInput): PositionRecomm
     headline = '数据不可靠，建议维持轻仓纪律仓';
     action = `建议相对计划仓约 ${target}%（定投层 ${coreShare}% / 波段层 ${satelliteShare}%）；暂停加仓，修好数据再评估`;
   } else if (input.dualPolicy === 'hold_on_conflict') {
-    // 有信息量的分歧说明，忌千篇一律「双体系不一致」
+    // 与 evaluateDualScore / buildDualConflictOverride 共用同一套标题
     const q = input.quantScore;
     if (q != null && Number.isFinite(q)) {
-      const llmDir = input.llmScore >= 58 ? '偏多' : input.llmScore <= 42 ? '偏空' : '中性';
-      const qDir = q >= 58 ? '偏多' : q <= 42 ? '偏空' : '中性';
-      const d = Math.round(input.llmScore - q);
-      const dStr = `${d > 0 ? '+' : ''}${d}`;
-      if (llmDir !== qDir) {
-        headline = `LLM ${llmDir}${input.llmScore} / 量化 ${qDir}${Math.round(q)}（Δ${dStr}）：取均值偏克制`;
-      } else {
-        headline = `同向${llmDir}但分差偏大（LLM ${input.llmScore} / 量化 ${Math.round(q)}，Δ${dStr}）`;
-      }
+      const llmDirection = dualDirectionFromScore(input.llmScore);
+      const quantDirection = dualDirectionFromScore(q);
+      const ov = buildDualConflictOverride({
+        llmScore: input.llmScore,
+        quantScore: Math.round(q),
+        llmDirection,
+        quantDirection,
+        delta: Math.round(input.llmScore - q),
+        sameDirection: llmDirection === quantDirection,
+      });
+      headline = ov.headline;
     } else {
       headline = '双分分歧，维持纪律仓、不追单边';
     }

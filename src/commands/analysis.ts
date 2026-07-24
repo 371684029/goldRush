@@ -62,6 +62,7 @@ import {
 import {
   evaluateDualScore,
   formatDualScoreConsole,
+  alignDualOverrideWithPosition,
   type DualScoreVerdict,
 } from '../utils/dual-score.js';
 import {
@@ -343,11 +344,9 @@ export async function analysisCommand(options: {
     },
   );
 
-  // 红档 或 双打分冲突：覆盖操作结论（双分仍展示）
+  // 红档：覆盖操作结论。双分冲突等仓位算完后再对齐文案并覆盖，避免两套说法
   if (!dataQualityGate.actionable) {
     applyNonActionableOverlay(report, dataQualityGate);
-  } else if (dualVerdict.actionOverride) {
-    applyDualHoldOverlay(report, dualVerdict);
   }
   console.log('  ✅ 编排完成');
   console.log(formatDualScoreConsole(dualVerdict));
@@ -414,6 +413,11 @@ export async function analysisCommand(options: {
     previousTargetPct,
   });
   report.overall.positionTargetPct = positionRec.targetPct;
+  // 双分冲突：仓位结论与 actionOverride / 策略风险提示共用同一套文案
+  if (dataQualityGate.actionable && dualVerdict.actionOverride) {
+    alignDualOverrideWithPosition(dualVerdict, positionRec);
+    applyDualHoldOverlay(report, dualVerdict);
+  }
   console.log(formatPositionConsole(positionRec));
 
   // 历史预测对错统计 → docs/goldrush-stats-latest.json（Web 首页/文章页）
@@ -596,8 +600,6 @@ async function runSmartAnalysis(
   );
   if (!dataQualityGate.actionable) {
     applyNonActionableOverlay(report, dataQualityGate);
-  } else if (dualVerdict.actionOverride) {
-    applyDualHoldOverlay(report, dualVerdict);
   }
 
   const primaryHorizon = report.longTermOutlook?.horizons?.find(h => h.years === 3)
@@ -618,6 +620,10 @@ async function runSmartAnalysis(
     previousTargetPct,
   });
   report.overall.positionTargetPct = positionRec.targetPct;
+  if (dataQualityGate.actionable && dualVerdict.actionOverride) {
+    alignDualOverrideWithPosition(dualVerdict, positionRec);
+    applyDualHoldOverlay(report, dualVerdict);
+  }
 
   let predictionTrack: PredictionTrackStats | null = null;
   try {
@@ -726,7 +732,7 @@ function applyNonActionableOverlay(report: GoldAnalysisReport, gate: DataQuality
   }
 }
 
-/** 双打分冲突：维持定投，不站队 */
+/** 双打分冲突：与仓位结论对齐后的覆盖（维持定投，不站队） */
 function applyDualHoldOverlay(report: GoldAnalysisReport, dual: DualScoreVerdict): void {
   const ov = dual.actionOverride;
   if (!ov) return;

@@ -545,10 +545,15 @@ function conflictHeadlineFromDual(dual, positionRec) {
   const qDir = q >= 58 ? '偏多' : q <= 42 ? '偏空' : '中性';
   const d = Math.round(llm - q);
   const dStr = `${d > 0 ? '+' : ''}${d}`;
-  if (llmDir !== qDir) {
-    return `LLM ${llmDir}${llm} / 量化 ${qDir}${q}（Δ${dStr}）：取均值偏克制`;
+  // 与 src/utils/dual-score.buildDualConflictOverride 标题口径一致
+  if ((llmDir === '偏多' && qDir === '偏空') || (llmDir === '偏空' && qDir === '偏多')) {
+    return `方向对立：LLM ${llmDir}${llm} vs 量化 ${qDir}${q}`;
   }
-  return `同向${llmDir}但分差偏大（LLM ${llm} / 量化 ${q}，Δ${dStr}）`;
+  if (llmDir !== qDir) {
+    return `LLM ${llmDir}${llm} / 量化 ${qDir}${q}：阶段判断不完全一致`;
+  }
+  const extremeSide = Math.abs(llm - 50) > Math.abs(q - 50) ? 'LLM' : '量化';
+  return `同向${llmDir}但分差偏大（Δ${dStr}）：${extremeSide}更极端`;
 }
 
 function resolveAdvice(scoreInfo, gate, dualScore, positionRec) {
