@@ -2,9 +2,10 @@
 //
 // 原则：
 // 1. 两套分数始终同时展示，不合成一个黑箱分
-// 2. |LLM−量化| > 15 视为冲突 → 操作弃权（维持定投），仍展示双分
-// 3. 弱维度一致性 → 同样弃权
-// 4. 谁更准由 calibrate 分轨统计决定，不在此写死「永远跟量化」
+// 2. |LLM−量化| > 15 或方向相反 → 操作克制（仓位有上限），不抬某一侧权重
+// 3. 四维弱一致 ≠「双体系不一致」：仅作克制提示，不盖掉双分同向时的仓位结论
+// 4. 冲突文案必须可解释（谁偏哪边、差多少），避免千篇一律「双体系不一致」
+// 5. 谁更准由 calibrate 分轨统计决定，不在此写死「永远跟量化」
 
 import type { Direction } from '../types/analysis.js';
 
@@ -18,7 +19,7 @@ export type DualAlignment = 'aligned' | 'mild_gap' | 'conflict' | 'quant_missing
 export type DualActionPolicy =
   | 'both'              // 同向且偏差小，可参考综合结论
   | 'quant_preferred'   // 偏差中等：操作偏向量化，叙事仍用 LLM
-  | 'hold_on_conflict'  // 冲突或弱一致：维持定投、不站队
+  | 'hold_on_conflict'  // 双分冲突：仓位受限、不追单边
   | 'llm_only';          // 无量化分
 
 export interface DualScoreVerdict {
@@ -48,9 +49,48 @@ export function dirLabel(d: Direction): string {
   return '中性';
 }
 
+/** 构建可解释的冲突覆盖文案（给人看，忌空话） */
+export function buildDualConflictOverride(input: {
+  llmScore: number;
+  quantScore: number;
+  llmDirection: Direction;
+  quantDirection: Direction;
+  delta: number;
+  sameDirection: boolean;
+}): { headline: string; action: string } {
+  const { llmScore, quantScore, llmDirection, quantDirection, delta, sameDirection } = input;
+  const dStr = `${delta > 0 ? '+' : ''}${delta}`;
+  const oppositeExtreme =
+    (llmDirection === 'bullish' && quantDirection === 'bearish')
+    || (llmDirection === 'bearish' && quantDirection === 'bullish');
+
+  if (oppositeExtreme) {
+    return {
+      headline: `方向对立：LLM ${dirLabel(llmDirection)}${llmScore} vs 量化 ${dirLabel(quantDirection)}${quantScore}`,
+      action: `两边对着干（Δ${dStr}），不追单边；维持定投，仓位见下方建议（已限≤50%）`,
+    };
+  }
+
+  if (!sameDirection) {
+    // 一方中性、一方偏多/空：幅度/阶段分歧，不是「体系坏了」
+    return {
+      headline: `LLM ${dirLabel(llmDirection)}${llmScore} / 量化 ${dirLabel(quantDirection)}${quantScore}：阶段判断不完全一致`,
+      action: `分差 Δ${dStr}，取均值偏克制；定投层为主，波段仓先放轻，看下方仓位%`,
+    };
+  }
+
+  // 同向但分差大：哪边更极端
+  const llmMoreExtreme = Math.abs(llmScore - 50) > Math.abs(quantScore - 50);
+  const extremeSide = llmMoreExtreme ? 'LLM' : '量化';
+  return {
+    headline: `同向${dirLabel(llmDirection)}但分差偏大（Δ${dStr}）：${extremeSide}更极端`,
+    action: `两边都偏${dirLabel(llmDirection)}，幅度不一；维持定投节奏，仓位按下方均值建议执行`,
+  };
+}
+
 /**
  * 评估双打分关系与操作策略。
- * @param consistencyWeak 四维度一致性弱（≤2/4）
+ * @param consistencyWeak 四维度一致性弱（≤2/4）— 单独不足以标成「双体系不一致」
  * @param dataActionable 数据门禁是否允许操作（红档 false）
  */
 export function evaluateDualScore(
@@ -112,21 +152,38 @@ export function evaluateDualScore(
     };
   }
 
-  // 弱一致性 / 分差冲突 → 弃权（不站队）
-  if (opts?.consistencyWeak || alignment === 'conflict' || (alignment === 'mild_gap' && !sameDirection)) {
+  // 真正的双分冲突：分差大，或同档内方向不一致
+  const dualConflict =
+    alignment === 'conflict'
+    || (alignment === 'mild_gap' && !sameDirection);
+
+  if (dualConflict) {
     const reasons: string[] = [];
-    if (opts?.consistencyWeak) reasons.push('四维度一致性弱');
     if (alignment === 'conflict') {
       reasons.push(`|LLM−量化|=${abs}>${DUAL_CONFLICT_THRESHOLD}`);
     }
-    if (alignment === 'mild_gap' && !sameDirection) {
+    if (!sameDirection) {
       reasons.push(`方向不一致（LLM${dirLabel(llmDirection)} vs 量化${dirLabel(quantDirection)}）`);
     }
+    if (opts?.consistencyWeak) {
+      reasons.push('四维度一致性弱（附加）');
+    }
 
-    banners.push(`🔢 双打分冲突/不确定：LLM=${llmScore}（${dirLabel(llmDirection)}）· 量化=${q}（${dirLabel(quantDirection)}）· 偏差=${delta > 0 ? '+' : ''}${delta}`);
+    const override = buildDualConflictOverride({
+      llmScore,
+      quantScore: q,
+      llmDirection,
+      quantDirection,
+      delta,
+      sameDirection,
+    });
+
+    banners.push(
+      `🔢 双打分分歧：LLM=${llmScore}（${dirLabel(llmDirection)}）· 量化=${q}（${dirLabel(quantDirection)}）· 偏差=${delta > 0 ? '+' : ''}${delta}`,
+    );
     banners.push(`   · 原因：${reasons.join('；')}`);
-    banners.push('   · 策略：两套分数均展示；操作弃权 → 维持定投，不据此加减仓');
-    banners.push('   · 以 calibrate 分轨结果判断近期谁更准，勿无脑抬某一侧权重');
+    banners.push('   · 策略：双分并排展示；不抬某一侧权重；仓位取均值并设上限，定投层为主');
+    banners.push('   · 以 calibrate 分轨结果判断近期谁更准');
 
     return {
       llmScore,
@@ -138,10 +195,42 @@ export function evaluateDualScore(
       sameDirection,
       actionPolicy: 'hold_on_conflict',
       banners,
-      actionOverride: {
-        headline: '双体系不一致，操作弃权',
-        action: '维持基础定投，按日历执行；待 LLM 与量化同向或校准明确后再考虑加减仓',
-      },
+      actionOverride: override,
+    };
+  }
+
+  // 四维弱一致、但双分未冲突：只提示克制，不写「双体系不一致」、不强制弃权覆盖
+  if (opts?.consistencyWeak) {
+    banners.push(
+      `🔢 双打分${alignment === 'aligned' ? '一致' : '温和偏差'}：LLM=${llmScore} · 量化=${q} · 偏差=${delta > 0 ? '+' : ''}${delta}`,
+    );
+    banners.push('   · 四维度一致性弱：操作宜克制，仓位已设上限；非双体系对立');
+    if (alignment === 'mild_gap') {
+      banners.push('   · 叙事看 LLM；短线结构可参考量化');
+      return {
+        llmScore,
+        quantScore: q,
+        delta,
+        alignment,
+        llmDirection,
+        quantDirection,
+        sameDirection,
+        actionPolicy: 'quant_preferred',
+        banners,
+        actionOverride: null,
+      };
+    }
+    return {
+      llmScore,
+      quantScore: q,
+      delta,
+      alignment,
+      llmDirection,
+      quantDirection,
+      sameDirection,
+      actionPolicy: 'both',
+      banners,
+      actionOverride: null,
     };
   }
 
@@ -198,13 +287,13 @@ export function formatDualScoreMarkdown(v: DualScoreVerdict): string {
   lines.push(`- **对齐状态**：\`${v.alignment}\``);
   lines.push(`- **操作策略**：\`${v.actionPolicy}\``);
   if (v.actionOverride) {
-    lines.push(`- ⛔ **操作覆盖**：${v.actionOverride.headline} — ${v.actionOverride.action}`);
+    lines.push(`- ⚠️ **分歧说明**：${v.actionOverride.headline} — ${v.actionOverride.action}`);
   }
   for (const b of v.banners) {
     lines.push(`- ${b.replace(/^[🔢\s·]+/, '').trim()}`);
   }
   lines.push('');
-  lines.push('> 双打分独立存在、分别校准（`goldrush calibrate`）。冲突时弃权维持定投，不用「提高某一侧权重」掩盖分歧。');
+  lines.push('> 双打分独立存在、分别校准（`goldrush calibrate`）。冲突时不抬某一侧权重；仓位取均值并设上限，以具体%为准。');
   lines.push('');
   return lines.join('\n');
 }

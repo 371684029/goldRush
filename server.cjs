@@ -159,7 +159,7 @@ function extractDualScore(md) {
   const q = quant?.quantScore ?? null;
   let policy = 'both';
   let conflict = false;
-  if (/操作弃权|双体系不一致|hold_on_conflict/.test(md)) {
+  if (/操作弃权|双体系不一致|双分分歧|hold_on_conflict|方向对立|阶段判断不完全一致|同向.*分差偏大/.test(md)) {
     policy = 'hold_on_conflict';
     conflict = true;
   } else if (q != null && Math.abs(llm - q) > 15) {
@@ -183,14 +183,14 @@ function renderDualScoreBanner(dual) {
   const dStr = d == null ? '—' : (d > 0 ? `+${d}` : String(d));
   const cls = dual.conflict ? 'dual-conflict' : Math.abs(d || 0) > 8 ? 'dual-mild' : 'dual-ok';
   const policyLabel = dual.conflict
-    ? '操作弃权 · 维持定投'
+    ? '双分分歧 · 仓位受限 · 定投为主'
     : dual.policy === 'quant_preferred'
       ? '同向微偏 · 叙事LLM / 结构向量化'
       : '双分一致';
   return `<div class="dual-banner ${cls}" role="status">
     <div class="dual-title">⚖️ 双打分 · LLM ${dual.llm} · 量化 ${dual.quant} · 偏差 ${esc(dStr)}</div>
     <div class="dual-policy">${esc(policyLabel)}</div>
-    <div class="dual-note">两套分数独立校准；冲突时不站队抬权重</div>
+    <div class="dual-note">两套分数独立校准；分歧时不抬某一侧权重，以仓位%为准</div>
   </div>`;
 }
 
@@ -242,6 +242,14 @@ function extractPositionRecommend(md) {
     prevTargetPct: prevM ? parseInt(prevM[1], 10) : null,
     badges,
   };
+}
+
+/** 旧报告「双体系不一致」泛化标题 → 用双分数重写成有信息量的一句话 */
+function enrichPositionHeadline(pos, dual) {
+  if (!pos) return pos;
+  if (pos.headline && !/双体系不一致|操作弃权/.test(pos.headline)) return pos;
+  if (!dual || dual.llm == null) return pos;
+  return { ...pos, headline: conflictHeadlineFromDual(dual, pos) };
 }
 
 /** 读取 docs/goldrush-stats-latest.json */
@@ -524,14 +532,49 @@ function nonActionableAdviceWeb() {
 
 /**
  * 统一操作建议（对齐 plain-advice.resolveOperationalAdvice 优先级）
- * 1 门禁红 2 双分冲突 3 仓位 4 分数
+ * 1 门禁红 2 双分分歧（有仓位则用仓位%作主结论） 3 仓位 4 分数
  */
+function conflictHeadlineFromDual(dual, positionRec) {
+  const llm = dual?.llm;
+  const q = dual?.quant;
+  const pct = positionRec?.targetPct;
+  if (llm == null || q == null) {
+    return pct != null ? `双分分歧，建议仓位约 ${pct}%` : '双分分歧，维持纪律仓';
+  }
+  const llmDir = llm >= 58 ? '偏多' : llm <= 42 ? '偏空' : '中性';
+  const qDir = q >= 58 ? '偏多' : q <= 42 ? '偏空' : '中性';
+  const d = Math.round(llm - q);
+  const dStr = `${d > 0 ? '+' : ''}${d}`;
+  if (llmDir !== qDir) {
+    return `LLM ${llmDir}${llm} / 量化 ${qDir}${q}（Δ${dStr}）：取均值偏克制`;
+  }
+  return `同向${llmDir}但分差偏大（LLM ${llm} / 量化 ${q}，Δ${dStr}）`;
+}
+
 function resolveAdvice(scoreInfo, gate, dualScore, positionRec) {
   if (gate && !gate.actionable) return nonActionableAdviceWeb();
   if (dualScore?.conflict && gate?.actionable !== false) {
+    if (positionRec && positionRec.action) {
+      const tilt = positionRec.tilt;
+      const color = tilt === 'reduce' ? '#f97316' : tilt === 'add' ? '#22c55e' : '#f59e0b';
+      let headline = positionRec.headline || '';
+      // 旧报告泛化标题 → 用当日双分现算一句有信息量的
+      if (!headline || /双体系不一致|操作弃权/.test(headline)) {
+        headline = conflictHeadlineFromDual(dualScore, positionRec);
+      }
+      return {
+        label: positionRec.label ? `${positionRec.label}·分歧` : '双分分歧',
+        headline,
+        action: positionRec.action,
+        color,
+        bg: color + '18',
+        emoji: positionRec.emoji || '⚖️',
+        source: 'dual_conflict',
+      };
+    }
     return {
-      label: '双分冲突·弃权',
-      headline: '双体系不一致，操作弃权',
+      label: '双分分歧·克制',
+      headline: conflictHeadlineFromDual(dualScore, null),
       action: '维持基础定投，按日历执行；待双分同向或校准明确后再加减仓',
       color: '#94a3b8',
       bg: '#33415544',
@@ -990,7 +1033,7 @@ function getFileInfos(files) {
     const dims = extractDimensionScores(md);
     const qualityGate = extractDataQualityGate(md);
     const dualScore = extractDualScore(md);
-    const positionRec = extractPositionRecommend(md);
+    const positionRec = enrichPositionHeadline(extractPositionRecommend(md), dualScore);
     const kind = classifyDoc(f);
     let dateLabel = f.replace(/\.md$/, '');
     if (kind === 'analysis') dateLabel = f.replace('goldrush-analysis-', '').replace('.md', '');
@@ -1131,7 +1174,7 @@ function renderIndex(fileInfos) {
   if (latest) {
     try {
       const latestMd = fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8');
-      latestPos = extractPositionRecommend(latestMd);
+      latestPos = enrichPositionHeadline(extractPositionRecommend(latestMd), latest.dualScore);
     } catch { /* ignore */ }
     // 旧日报无仓位小节时：用分数粗推（与 position-recommend 同档）
     if (!latestPos && latest.score != null) {
@@ -1278,7 +1321,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
   const quantInfo = extractQuantScore(rawMarkdown);
-  const positionRec = extractPositionRecommend(rawMarkdown);
+  const positionRec = enrichPositionHeadline(extractPositionRecommend(rawMarkdown), dualScore);
   const predictionStats = loadPredictionStats();
   const reliability = extractReliabilityCard(rawMarkdown, {
     score: scoreInfo?.score,

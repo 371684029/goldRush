@@ -25,15 +25,18 @@ describe('recommendPosition', () => {
     expect(p.constraints.some(c => c.includes('门禁'))).toBe(true);
   });
 
-  it('双分冲突不超过 50%', () => {
+  it('双分冲突不超过 50%，headline 含 LLM/量化分数', () => {
     const p = recommendPosition({
-      llmScore: 75,
-      quantScore: 40,
+      llmScore: 28,
+      quantScore: 45,
       dualPolicy: 'hold_on_conflict',
       dataActionable: true,
     });
     expect(p.targetPct).toBeLessThanOrEqual(50);
-    expect(p.constraints.some(c => c.includes('冲突'))).toBe(true);
+    expect(p.constraints.some(c => c.includes('双分') || c.includes('上限'))).toBe(true);
+    expect(p.headline).toMatch(/LLM|量化/);
+    expect(p.headline).not.toMatch(/双体系不一致/);
+    expect(p.action).toMatch(/\d+%/);
   });
 
   it('高分可偏积极（无额外风险时）', () => {

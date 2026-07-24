@@ -83,7 +83,7 @@ export interface ResolveOperationalAdviceInput {
  *
  * 优先级：
  * 1. 数据门禁红档 → 勿加减仓
- * 2. 双打分冲突弃权 → 维持纪律定投
+ * 2. 双打分冲突 → 仍给可执行仓位%（若有）；文案解释分歧，不空喊「双体系不一致」
  * 3. 有仓位推荐 → 用仓位结论/操作（已含门禁·双分约束）
  * 4. 否则按 LLM 分映射人话
  *
@@ -104,17 +104,32 @@ export function resolveOperationalAdvice(input: ResolveOperationalAdviceInput): 
     );
   }
 
-  // 2) 双分冲突
+  // 2) 双分冲突：有仓位推荐时，主结论用仓位（已含 ≤50% 等约束），分歧说明作标题
   const dualHold =
     input.dualPolicy === 'hold_on_conflict'
     || (input.dualActionOverride != null && input.dualActionOverride.headline.length > 0);
   if (dualHold) {
     const ov = input.dualActionOverride;
+    const p = input.position;
+    if (p?.action) {
+      const pct = p.targetPct != null ? `（约 ${p.targetPct}%）` : '';
+      return withPalette(
+        {
+          label: p.label ? `${p.label}·分歧` : '双分分歧',
+          emoji: p.emoji || '⚖️',
+          // 优先仓位侧已写好的「LLM xx / 量化 yy」标题；否则用 dual override
+          headline: p.headline || ov?.headline || '双分分歧，维持纪律仓',
+          action: p.action.includes('计划仓') ? p.action : `${p.action}${pct}`,
+        },
+        p.tilt === 'reduce' ? 'orange' : p.tilt === 'add' ? 'green' : 'yellow',
+        'dual_conflict',
+      );
+    }
     return withPalette(
       {
-        label: '双分冲突·弃权',
+        label: '双分分歧·克制',
         emoji: '⚖️',
-        headline: ov?.headline ?? '双体系不一致，操作弃权',
+        headline: ov?.headline ?? '双分分歧，操作克制',
         action: ov?.action ?? '维持基础定投，按日历执行；待双分同向或校准明确后再加减仓',
       },
       'gray',

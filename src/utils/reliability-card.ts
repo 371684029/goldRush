@@ -109,8 +109,8 @@ export function buildReliabilityCard(input: ReliabilityCardInput): ReliabilityCa
       if (dual.alignment === 'conflict' || dual.actionPolicy === 'hold_on_conflict') {
         p = 6;
         ok = false;
-        detail = `冲突 Δ${dStr} · 操作弃权`;
-        warnings.push('LLM 与量化方向/幅度冲突');
+        detail = `分歧 Δ${dStr} · 仓位受限`;
+        warnings.push('LLM 与量化方向/幅度分歧');
       } else if (dual.alignment === 'mild_gap') {
         p = 16;
         ok = dual.sameDirection !== false;
