@@ -27,6 +27,8 @@ import { priceSeriesProxyNote, spotProxyDeviationWarning } from '../utils/price-
 import { evaluateAnalysisGate } from '../utils/analysis-gate.js';
 import { buildSmartReport, parseReportJson } from '../utils/smart-analysis.js';
 import { buildRecentReportsContext } from '../utils/report-history-context.js';
+import { loadPreviousReflect } from './reflect.js';
+import { formatReflectPromptContext } from '../utils/weekly-reflect.js';
 import { resolveOverallScore } from '../utils/overall-score.js';
 import { directionFromScore } from '../utils/calibration-adjust.js';
 import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
@@ -232,7 +234,17 @@ export async function analysisCommand(options: {
   const db = getDb();
   const reportsRepo = new ReportsRepo(db);
   const today = todayDate();
-  const recentReportsContext = buildRecentReportsContext(reportsRepo.getRecent(30), today);
+  let reflectBlock: string | null = null;
+  try {
+    const prevReflect = loadPreviousReflect();
+    if (prevReflect) reflectBlock = formatReflectPromptContext(prevReflect);
+  } catch { /* ignore */ }
+  const recentReportsContext = buildRecentReportsContext(
+    reportsRepo.getRecent(30),
+    today,
+    3,
+    reflectBlock,
+  );
 
   const prelimScore = resolveOverallScore(rebuttal, {
     technical: technical.score,

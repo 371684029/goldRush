@@ -588,6 +588,7 @@ header.home-hero .subtitle {
 .report-card.dir-bearish { border-left-color: var(--red); }
 .report-card.dir-neutral { border-left-color: var(--yellow); }
 .report-card.kind-digest { border-left-color: var(--accent); }
+.report-card.kind-reflect { border-left-color: #af52de; }
 .report-card.kind-other { border-left-color: var(--text-3); }
 .report-card:hover {
   background: var(--glass-strong);

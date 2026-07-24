@@ -41,10 +41,12 @@ fi
 # Webhook 告警（未配置 URL 时静默跳过）
 node "$PROJECT_DIR/dist/index.js" notify --daily --exit "$EXIT_CODE" >> "$LOG_FILE" 2>&1 || true
 
-# 周日生成周期摘要
+# 周日：周期摘要 + 预测错因反思（驱动下周读报告更准）
 if [ "$(date +%u)" -eq 7 ]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] 生成周期摘要..." >> "$LOG_FILE" 2>&1
   node "$PROJECT_DIR/dist/index.js" digest --days 7 --md >> "$LOG_FILE" 2>&1 || true
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 生成预测错因反思..." >> "$LOG_FILE" 2>&1
+  node "$PROJECT_DIR/dist/index.js" reflect --days 14 --md --refresh-stats >> "$LOG_FILE" 2>&1 || true
 fi
 
 exit $EXIT_CODE

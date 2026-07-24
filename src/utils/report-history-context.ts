@@ -14,16 +14,28 @@ export function buildRecentReportsContext(
   rows: AnalysisReportRow[],
   excludeDate: string,
   limit = 3,
+  reflectBlock?: string | null,
 ): string {
   const filtered = rows
     .filter(r => r.date < excludeDate)
     .slice(0, limit);
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && !reflectBlock) {
     return '无历史报告可对比（首次运行或样本不足）。';
   }
 
-  const lines: string[] = ['## 近期分析回顾（供趋势对比，勿机械重复）'];
+  const lines: string[] = [];
+  if (reflectBlock) {
+    lines.push(reflectBlock);
+    lines.push('');
+  }
+
+  if (filtered.length === 0) {
+    lines.push('无历史报告可对比（首次运行或样本不足）。');
+    return lines.join('\n');
+  }
+
+  lines.push('## 近期分析回顾（供趋势对比，勿机械重复）');
   for (const row of filtered) {
     let summary = '';
     try {

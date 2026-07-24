@@ -10,6 +10,7 @@ import { snapshotCommand, initHistoryCommand } from './commands/snapshot.js';
 import { historyCommand } from './commands/history.js';
 import { diffCommand } from './commands/diff.js';
 import { digestCommand } from './commands/digest.js';
+import { reflectCommand } from './commands/reflect.js';
 import { notifyCommand } from './commands/notify.js';
 import { outlookCommand } from './commands/outlook.js';
 import { flowCommand } from './commands/flow.js';
@@ -165,6 +166,27 @@ program
   .action(async (opts) => {
     try {
       digestCommand(parseInt(opts.days, 10) || 7, opts.md ?? false, opts.json ?? false);
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('reflect')
+  .description('预测错因反思（周末归纳打脸原因，驱动下周读报告更准）')
+  .option('--days <n>', '回顾天数', '14')
+  .option('--md', '写入 docs/goldrush-reflect-latest.md + JSON')
+  .option('--json', 'JSON 输出')
+  .option('--refresh-stats', '强制刷新 goldrush-stats-latest.json')
+  .action(async (opts) => {
+    try {
+      const code = reflectCommand({
+        days: parseInt(opts.days, 10) || 14,
+        md: opts.md ?? false,
+        json: opts.json ?? false,
+        refreshStats: opts.refreshStats ?? false,
+      });
+      if (code !== 0) process.exit(code);
     } finally {
       closeDb();
     }

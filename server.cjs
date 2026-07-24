@@ -1101,9 +1101,10 @@ function esc(s) {
 
 // ===== 文件信息封装 =====
 
-/** 报告类型：analysis / digest / other */
+/** 报告类型：analysis / digest / reflect / other */
 function classifyDoc(filename) {
   if (filename.includes('flow')) return 'flow';
+  if (filename.includes('reflect')) return 'reflect';
   if (filename.includes('digest')) return 'digest';
   if (filename.includes('analysis')) return 'analysis';
   if (filename.includes('calibration')) return 'calibration';
@@ -1128,6 +1129,10 @@ function getFileInfos(files) {
       dateLabel = f.includes('latest')
         ? '周期摘要 · 最新'
         : f.replace('goldrush-digest-', '').replace('.md', '');
+    } else if (kind === 'reflect') {
+      dateLabel = f.includes('latest')
+        ? '错因反思 · 最新'
+        : f.replace('goldrush-reflect-', '').replace('.md', '');
     }
     return {
       filename: f,
@@ -1183,7 +1188,8 @@ function renderIndex(fileInfos) {
   const predictionStats = loadPredictionStats();
   const analyses = attachPredictionOutcomes(attachNeighborDeltas(analysesRaw), predictionStats);
   const digests = fileInfos.filter(i => i.kind === 'digest');
-  const others = fileInfos.filter(i => i.kind !== 'analysis' && i.kind !== 'digest');
+  const reflects = fileInfos.filter(i => i.kind === 'reflect');
+  const others = fileInfos.filter(i => i.kind !== 'analysis' && i.kind !== 'digest' && i.kind !== 'reflect');
 
   const latest = analyses[0] ?? null;
   const rest = analyses.slice(1);
@@ -1237,6 +1243,18 @@ function renderIndex(fileInfos) {
       <div class="rc-body">
         <div class="rc-date">${esc(info.dateLabel)}</div>
         <div class="rc-snippet">周期摘要 · 均分与跳变一览</div>
+        <div class="rc-meta">${mtimeStr}</div>
+      </div>
+    </a>`;
+  }).join('\n');
+
+  const reflectRows = reflects.map(info => {
+    const mtimeStr = info.mtime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `<a href="/${info.filename}" class="report-card kind-reflect" data-search="${esc(info.filename + ' ' + info.dateLabel + ' reflect 反思 错因')}">
+      <div class="rc-kind">反思</div>
+      <div class="rc-body">
+        <div class="rc-date">${esc(info.dateLabel)}</div>
+        <div class="rc-snippet">预测错因归纳 · 下周阅读清单</div>
         <div class="rc-meta">${mtimeStr}</div>
       </div>
     </a>`;
@@ -1339,6 +1357,7 @@ function renderIndex(fileInfos) {
     ${homePanels ? `<div class="home-panels mac-window glass-strong">${macTitlebar('今日一览')}${homePanels}</div>` : ''}
     ${rest.length ? `<div class="section-label">历史日报</div><div class="card-grid" id="card-grid">${cardRows}</div>` : ''}
     ${digests.length ? `<div class="section-label" style="margin-top:28px">周期摘要</div><div class="card-grid" id="digest-grid">${digestRows}</div>` : ''}
+    ${reflects.length ? `<div class="section-label" style="margin-top:28px">错因反思</div><div class="card-grid" id="reflect-grid">${reflectRows}</div>` : ''}
     ${others.length ? `<div class="section-label" style="margin-top:28px">其它文档</div><div class="card-grid">${otherRows}</div>` : ''}
     ` : `<div class="empty">
       <div class="icon">📭</div>
@@ -1347,7 +1366,7 @@ function renderIndex(fileInfos) {
 
     <footer>
       <p>报告由 <a href="/">GoldRush</a> 自动生成 · 仅供研究参考，不构成投资建议</p>
-      <p style="margin-top:8px"><a href="/#digest-grid">📰 周期摘要</a>${digests[0] ? ` · <a href="/${digests[0].filename}">打开最新摘要</a>` : ''}</p>
+      <p style="margin-top:8px"><a href="/#digest-grid">📰 周期摘要</a>${digests[0] ? ` · <a href="/${digests[0].filename}">打开最新摘要</a>` : ''}${reflects[0] ? ` · <a href="/#reflect-grid">🪞 错因反思</a> · <a href="/${reflects[0].filename}">最新反思</a>` : ''}</p>
     </footer>
   </div>
 
@@ -1493,12 +1512,20 @@ function renderArticle(mdFilename, rawMarkdown) {
   }
   contentHtml = sanitizeMarkdownHtml(contentHtml);
 
-  const pageTitle = kind === 'flow' ? `${esc(dateLabel)} — 主力流向` : kind === 'digest' ? `${esc(dateLabel)} — 周期摘要` : `${esc(dateLabel)} — GoldRush 分析报告`;
-  const headerTitle = kind === 'flow' ? '主力流向' : kind === 'digest' ? '周期摘要' : '详细分析';
+  const pageTitle = kind === 'flow' ? `${esc(dateLabel)} — 主力流向`
+    : kind === 'digest' ? `${esc(dateLabel)} — 周期摘要`
+    : kind === 'reflect' ? `${esc(dateLabel)} — 错因反思`
+    : `${esc(dateLabel)} — GoldRush 分析报告`;
+  const headerTitle = kind === 'flow' ? '主力流向'
+    : kind === 'digest' ? '周期摘要'
+    : kind === 'reflect' ? '错因反思'
+    : '详细分析';
   const headerMeta = kind === 'flow'
     ? `${esc(dateLabel)} · CFTC · ETF · 央行`
     : kind === 'digest'
     ? `${esc(dateLabel)} · 均分与跳变一览`
+    : kind === 'reflect'
+    ? `${esc(dateLabel)} · 打脸分桶与下周清单`
     : `${esc(dateLabel)} · 策略默认展开，长文可折叠`;
 
   return `<!DOCTYPE html>
@@ -1515,7 +1542,7 @@ function renderArticle(mdFilename, rawMarkdown) {
       <span class="logo-dot" aria-hidden="true"></span>
       <a href="/"><span class="logo">GoldRush</span></a>
       <span class="sep">/</span>
-      <span class="report-date">${esc(dateLabel)}${kind === 'flow' ? ' 主力流向' : kind === 'digest' ? ' 周期摘要' : ' 分析报告'}</span>
+      <span class="report-date">${esc(dateLabel)}${kind === 'flow' ? ' 主力流向' : kind === 'digest' ? ' 周期摘要' : kind === 'reflect' ? ' 错因反思' : ' 分析报告'}</span>
     </div>
     <a class="topbar-back" href="/">← 返回列表</a>
   </nav>
